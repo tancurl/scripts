@@ -31,19 +31,19 @@ sub log_print {
     if ($level) {
         if ($colorful) {
             if ($level eq 4) {
-                die("$current_date $filename:$line\t" . color('bold ' . $log_color) . "$log_name" . color('reset') . "\t$message\n");
+                die("$current_date $filename:$line " . color('bold ' . $log_color) . "$log_name" . color('reset') . " $message\n");
             } elsif ($level eq 3) {
-                warn("$current_date $filename:$line\t" . color('bold ' . $log_color) . "$log_name" . color('reset') . "\t$message\n");
+                warn("$current_date $filename:$line " . color('bold ' . $log_color) . "$log_name" . color('reset') . " $message\n");
             } else {
-                print "$current_date $filename:$line\t" . color('bold ' . $log_color) . "$log_name" . color('reset') . "\t$message\n";
+                print "$current_date $filename:$line " . color('bold ' . $log_color) . "$log_name" . color('reset') . " $message\n";
             }
         } else {
             if ($level eq 4) {
-                die("$current_date $filename:$line\t$message\n");
+                die("$current_date $filename:$line $message\n");
             } elsif ($level eq 3) {
-                warn("$current_date $filename:$line\t$message\n");
+                warn("$current_date $filename:$line $message\n");
             } else {
-                print "$current_date $filename:$line\t$message\n";
+                print "$current_date $filename:$line $message\n";
             }
         }
     }
