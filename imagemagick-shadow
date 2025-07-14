@@ -125,7 +125,7 @@ fi
 # }}}
 # }}}
 
-printf '%s\t' "${prompt}:" "${input} => ${output}"
+printf "${prompt}: ${input} => "
 
 if [ -z "${#}" ]; then
 	printf '%s\n' "No image name or argument is specified :/"
@@ -145,7 +145,7 @@ $(which convert) \
 	2>/dev/null
 
 if [ $? -eq 0 ]; then
-	printf '✓\n'
+	printf "${output} ✓\n"
 else
-	printf '×\n'
+	printf "${output} ×\n"
 fi

@@ -8,10 +8,33 @@
 
 c='•'
 
+distro="debian"
+
+case ${distro} in
+	debian)
+		pkgs="apt search "
+		;;
+	arch)
+		pkgs="pacman -Ss "
+		;;
+	void)
+		pkgs="xbps-query -Rs "
+		;;
+	redhat)
+		pkgs="dnf search "
+		;;
+	suse)
+		pkgs="zypper search "
+		;;
+	*)
+		pkgs=
+		;;
+esac
+
 tmp() {
 cat << EOF
 	${SHELL}
-	xbps-query -Rs 
+	${pkgs}
 	sudo sv restart 
 	iwctl station list 
 	pulsemixer
@@ -20,9 +43,9 @@ cat << EOF
 EOF
 }
 
-term="st -t Terminal"
+term="st -t st"
 sh="bash"
-prompt='exec'
+prompt='st-exec'
 
 pached=$(dmenu -v | grep -c 'hos-patched')
 if [ ${pached} -eq 1 ]; then
@@ -36,8 +59,6 @@ runner="dmenu -p ${prompt} -l 15 ${patches} ${@}"
 #		| ${runner} | sed "s/^${c} //")"
 
 cmd=$(tmp | sed -e "s/^/${c} /" -e 's/\t/ /g' | ${runner} | sed "s/^${c} //")
-
-
 
 ${term} \
 	${sh} -c "${cmd} && ${sh}" \
