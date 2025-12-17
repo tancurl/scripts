@@ -1,0 +1,88 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+my $ResX = "1920";
+my $ResY = "1080";
+my $resolution = "${ResX}x${ResY}";
+
+# execute xrandr and capture output
+my @connected_outputs = `xrandr`;
+my (@outputs);
+
+# extract connected display names
+foreach my $line (@connected_outputs) {
+    if ($line =~ /(\S+)\s+connected/) {
+        push @outputs, $1;
+    }
+}
+
+my $SECONDARY = $outputs[0];
+my $PRIMARY = $outputs[1];
+
+print "primary: $PRIMARY\n";
+print "secondary: $SECONDARY\n";
+
+my @command;
+
+if (defined $ARGV[0] && $ARGV[0] eq '2') {
+    push @command, 
+        'xrandr',
+            '-r', '75',
+            '--output', $PRIMARY,
+                '--primary',
+                '--auto',
+                '--mode', $resolution,
+                '--rotate', 'normal',
+            '--output', $SECONDARY,
+            '-r', '75',
+            '--auto',
+            '--mode', $resolution,
+            '--left-of', $PRIMARY,
+            '--rotate', 'normal'
+    ;
+} elsif (defined $ARGV[0] && $ARGV[0] eq '0') {
+    push @command,
+        'xrandr',
+            '-r', '75',
+            '--output', $PRIMARY,
+                '--auto',
+                '--same-as', $SECONDARY,
+                '--mode', $resolution,
+            '--output', $SECONDARY, '--mode', $resolution,
+            '--output', 'HDMI2', '--off',
+            '--output', 'DP-1', '--off',
+            '--output', 'DP-1-0', '--off',
+            '--output', 'DP-1-1', '--off',
+            '--output', 'DP-1-2', '--off',
+            '--output', 'DP-1-3', '--off'
+    ;
+} else {
+    push @command,
+        'xrandr',
+            '-r', '75',
+            '--output', $PRIMARY,
+                '--primary',
+                '--auto',
+                '--mode', $resolution,
+                '--pos', "0x$ResY",
+                '--rotate', 'normal',
+        '--output', $SECONDARY, '--off',
+        '--output', 'DP-1', '--off',
+        '--output', 'HDMI2', '--off',
+        '--output', 'DP-1-0', '--off',
+        '--output', 'DP-1-1', '--off',
+        '--output', 'DP-1-2', '--off',
+        '--output', 'DP-1-3', '--off'
+    ;
+}
+
+# Execute the constructed command array
+print "@command\n";
+# exit 0;
+system(@command);
+
+# Send the notification
+system("notify-send -u low -a xrandr \"resolution is set $resolution\"");
+sleep(1);
+

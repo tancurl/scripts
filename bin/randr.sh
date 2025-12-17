@@ -18,8 +18,8 @@ Res="${ResX}x${ResY}"
 # echo $xrandr $PRIMARY $SECONDARY
 # exit 23
 
-PRIMARY="HDMI-2"
-SECONDARY="DP-2"
+PRIMARY="HDMI-1"
+SECONDARY="HDMI-2"
 
 #if [ ${ResX} -gt 1920 ] || [ ${ResX} -gt 1080 ]; then
 

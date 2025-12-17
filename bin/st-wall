@@ -1,6 +1,7 @@
 #!/bin/sh
 
-input="${HOME}/pictures/wallpaper/red-dark-hands.png"
+# input="${HOME}/pictures/wallpaper/red-dark-hands.png"
+input="${HOME}/.local/share/dwm/background"
 name="${HOME}/.local/share/dwm/background"
 command -v magick && cmd="magick convert" || cmd="convert"
 
@@ -18,7 +19,7 @@ command -v magick && cmd="magick convert" || cmd="convert"
 
     jpg2ff < ${name}.jpg \
         | ff-border e 50 \
-        | ff-bright rgba 0 0.5 1 \
+        | ff-bright rgba 0 0.4 1 \
         | ff-blur 50 05 > ${name}.st
 
     ${cmd} \
@@ -32,7 +33,7 @@ command -v magick && cmd="magick convert" || cmd="convert"
 
     jpg2ff < ${name}.jpg \
         | ff-border e 50 \
-        | ff-bright rgba 0 0.5 1 \
+        | ff-bright rgba 0 0.4 1 \
         | ff-blur 50 05 > ${name}.ff
 
 # imagemagick-color -i "${1}" -o "${presist_wall}" -r '#000000' -f '#81908f' -p 5

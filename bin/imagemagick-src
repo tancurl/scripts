@@ -50,8 +50,9 @@ case ${1} in
 		output="${2}"
 		shift
 		;;
-	-l|--linenu)
-		linenu='-l'
+	-l|--language)
+		language="-l ${2}"
+		shift
 		;;
 	-h|--help)
 		help
@@ -147,10 +148,13 @@ fi
 [ -z "${grad_height}" ] && grad_height="160"
 [ -z "${border}" ] && border="25"
 [ -z "${lastborder}" ] && lastborder=$(echo "${border} / 2" | bc)
-[ -z "${color5}" ] && grad_first='#770000' || grad_first="${color5}"
-[ -z "${color4}" ] && grad_second='#ff7700' || grad_second="${color4}"
+[ -z "${color5}" ] && grad_first='#b9f27c' || grad_first="${color5}"
+[ -z "${color4}" ] && grad_second='#ff9e64' || grad_second="${color5}"
+# [ -z "${color5}" ] && grad_first='#770000' || grad_first="${color5}"
+# [ -z "${color4}" ] && grad_second='#ff7700' || grad_second="${color4}"
 
-[ -z "${theme}" ] && theme="rdark"
+# [ -z "${theme}" ] && theme="base16/tomorrow-night"
+[ -z "${theme}" ] && theme="material"
 # theme="rdark"
 # theme="base16/tomorrow-night"
 # theme="edit-vim-dark"
@@ -238,31 +242,42 @@ fi
 #}
 ## }}}
 
-highlight \
-		-i "${input}" \
-		-O pango \
-		-P \
-		${extra} \
-		"${linenu}" \
-		-j 5 \
-		-k "${font}" \
-		-K "${size}" \
-		-s "${theme}" \
-		-t 4 \
-	| $(which convert || which magick) \
-		-background "${bgcolor}" \
-		-fill "${fgcolor}" \
-		pango:@- \
-		-size 800x1000 \
-		-background none \
-		"${output}"
+# pygmentize -O style=dracula -O linenos=1 -f pango ${input} \
+
+# highlight \
+# 		-i "${input}" \
+# 		-O pango \
+# 		-P \
+# 		${extra} \
+# 		"${linenu}" \
+# 		-j 5 \
+# 		-k "${font}" \
+# 		-K "${size}" \
+# 		-s "${theme}" \
+# 		-t 4 \
+
+# pygmentize -O style=dracula -O linenos=1 -f pango ${input} \
+# 	| $(which convert || which magick) \
+# 		-background "${bgcolor}" \
+# 		-fill "${fgcolor}" \
+#         -pointsize "${size}" \
+# 		pango:@- \
+# 		-size 800x1000 \
+# 		-background none \
+# 		"${output}"
+
+nl -b a ${input} \
+| pygmentize -O style=${theme} -O bgcolor=base03 -f pango ${language} \
+| convert -background '#121314' -pointsize 18 pango:@- ${output}
 
 imagemagick-trim -i "${output}" -o "${output}"
 imagemagick-shadow -i "${output}" -o "${output}" -sw 0 -sr 0 -sc none -bw ${border} -bc "${bgcolor}"
 imagemagick-title -i "${output}" -o "${output}" -t "${frametitle}" -bg "${brcolor}" # -s ${size} -w
 imagemagick-round -i "${output}" -o "${output}" -r 5
-imagemagick-trim -i "${output}" -o "${output}"
-imagemagick-shadow -i "${output}" -o "${output}" -sw 0 -sc none -bw 2 -bc "${brcolor}"
+# imagemagick-trim -i "${output}" -o "${output}"
+imagemagick-shadow -i "${output}" -o "${output}" -sw 0 -sc none -bw 1 -bc "${brcolor}"
+# imagemagick-shadow -i "${output}" -o "${output}" -sw 0 -sc none -bw 1 -bc "${ftcolor}"
+# imagemagick-shadow -i "${output}" -o "${output}" -sw 0 -sc none -bw 1 -bc "${bgcolor}"
 imagemagick-trim -i "${output}" -o "${output}"
 imagemagick-round -i "${output}" -o "${output}" -r 5
 

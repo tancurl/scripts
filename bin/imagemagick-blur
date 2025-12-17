@@ -87,7 +87,7 @@ fi
 
 [ -z ${scale} ] && scale=3
 [ -z ${rate} ] && rate=5
-[ -z ${blur} ] && rate=3
+[ -z ${blur} ] && blur=3
 # }}}
 # }}}
 ## launcher {{{

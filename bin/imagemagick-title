@@ -100,17 +100,18 @@ fi
 [ -z "${tmpcolor}" ] && tmpcolor="#333339"
 # [ -z "${brcolor}" ] && brcolor="#232323"
 [ -z "${fgcolor}" ] && fgcolor="#d3d3d3"
-# [ -z "${button_color_close}" ] && button_color_close="#ff5f56"
-# [ -z "${button_color_maximize}" ] && button_color_maximize="#5fc451"
-# [ -z "${button_color_minimize}" ] && button_color_minimize="#ffbd2e"
-[ -z "${button_color_close}" ] && button_color_close="#9999A0"
-[ -z "${button_color_maximize}" ] && button_color_maximize="#9999A0"
-[ -z "${button_color_minimize}" ] && button_color_minimize="#9999A0"
+[ -z "${button_color_close}" ] && button_color_close="#ff5f56"
+[ -z "${button_color_maximize}" ] && button_color_maximize="#5fc451"
+[ -z "${button_color_minimize}" ] && button_color_minimize="#ffbd2e"
+# [ -z "${button_color_close}" ] && button_color_close="#9999A0"
+# [ -z "${button_color_maximize}" ] && button_color_maximize="#9999A0"
+# [ -z "${button_color_minimize}" ] && button_color_minimize="#9999A0"
 [ -z "${font}" ] && font="Ubuntu-Medium"
 [ -z "${title}" ] && title="Source Code"
 [ -z "${size}" ] && size="18"
 [ -z "${vert}" ] && vert="-0"
 # }}}
+
 # }}}
 
 res=$(identify ${input}| awk '{print $3;}')
@@ -121,7 +122,7 @@ resyout=$(echo "${resy} + 14" | bc)
 width="${resx}"
 height=$(echo "${size} + ${size}" | bc)
 
-printf '%s: %s <%s> %s ' ${prompt} ${input} ${title} ${output}
+printf '%s: %s <%s> %s ' ${prompt} ${input} "${title}" ${output}
 
 tmpfile_bar="/tmp/im-tmp-title-bar.png"
 tmpfile_action="/tmp/im-tmp-title-action.png"
@@ -129,7 +130,7 @@ tmpfile_action="/tmp/im-tmp-title-action.png"
 convert \
     -size ${width}x${height} \
 	gradient:"${tmpcolor}-${bgcolor}" \
-    -font ${font} \
+    -font "${font}" \
     -pointsize ${size} \
     -fill ${fgcolor} \
     -gravity center \

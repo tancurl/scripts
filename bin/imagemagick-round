@@ -96,16 +96,12 @@ dymax=$(echo ${tmp} \
 	| awk -F 'x' '{print $2;}')
 
 printf '%s: %s => %s ' ${prompt} ${input} ${output}
-convert \
-	${input} \( \
-		+clone \
-		-threshold 100% \
-		-fill white \
-		-draw \
-			"roundrectangle 0,0 ${dxmax},${dymax} ${sqrp},${sqrp}" \
-	\) \
-	-channel-fx '| gray=>alpha'\
-	${output}
+convert ${input} \
+    \( +clone  -alpha extract \
+        -draw 'fill black polygon 0,0 0,15 15,0 fill white circle 15,15 15,0' \
+        \( +clone -flip \) -compose Multiply -composite \
+        \( +clone -flop \) -compose Multiply -composite \
+    \) -alpha off -compose CopyOpacity -composite ${output}
 
 if [ $? -eq 0 ]; then
     printf '%s\n' ${ok}

@@ -1,0 +1,53 @@
+#!/usr/bin/env perl
+
+use warnings;
+use strict;
+use YAML::XS 'LoadFile';
+use YAML::Tiny;
+use Getopt::Long;
+use File::Basename;
+
+#### Dependencies ####
+# sudo apt install \
+#     libyaml libyaml-libyaml-perl libyaml-perl libyaml-shell-perl \
+#     libyaml-tiny-perl \
+#     libjson-perl
+
+# default values {{{
+my $config = '';
+my $prompt = basename($0);
+# }}}
+
+# argument parsing {{{
+GetOptions(
+    'c|config=s'      => \$config,
+);
+# }}}
+
+# arg checking {{{
+unless ($config) {
+    die("$prompt: No config file provided\n");
+}
+# }}}
+
+# main
+
+my $_data = YAML::Tiny->read($config);
+my $data = $_data->[0]->{config};
+$bridge_interface = $data->{bridge}->{interface} if $data->{bridge}->{interface} ne '';
+$image_format = $data->{image}->{format} if $data->{image}->{format} ne '';
+$image_name = $data->{image}->{name} if $data->{image}->{name} ne '';
+$image_path = $data->{image}->{path} if $data->{image}->{path} ne '';
+$iso_path = $data->{iso}->{path} if $data->{iso}->{path} ne '';
+$machine_cpu = $data->{machine}->{cpu} if $data->{machine}->{cpu} ne '';
+$machine_desc = $data->{machine}->{desc} if $data->{machine}->{desc} ne '';
+$machine_name = $data->{machine}->{name} if $data->{machine}->{name} ne '';
+$machine_ram = $data->{machine}->{ram} if $data->{machine}->{ram} ne '';
+$port_forward = $data->{port}->{forward} if $data->{port}->{forward} ne '';
+$port_ssh = $data->{port}->{ssh} if $data->{port}->{ssh} ne '';
+$port_vnc = $data->{port}->{vnc} if $data->{port}->{vnc} ne '';
+$script_name = $data->{script}->{name} if $data->{script}->{name} ne '';
+$script_path = $data->{script}->{path} if $data->{script}->{path} ne '';
+$sharedfolder_path = $data->{sharedfolder}->{path} if $data->{sharedfolder}->{path} ne '';
+$vol_tag = $data->{vol}->{tag} if $data->{vol}->{tag} ne '';
+

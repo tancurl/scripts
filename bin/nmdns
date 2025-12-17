@@ -21,7 +21,7 @@ usage: [-hsep] [-print] [-i dns]
        -p -print  print current DNS
 
    • example:
-       ${prompt} -i 8.8.8.8 4.2.2.4
+       ${prompt} -i 8.8.8.8 8.8.4.4
 
    • running without any arguments will set DNS to 4.2.2.4 and 8.8.8.8
 EOF
@@ -31,7 +31,7 @@ EOF
 # set function {{{
 setdns() {
 	verbose=false
-	default_servers="4.2.2.4 8.8.8.8"
+	default_servers="8.8.4.4 8.8.8.8"
 
 	case "${1}" in
 		-i)
@@ -46,7 +46,7 @@ setdns() {
 			fi
 			;;
 		-e) servers="78.157.42.101 78.157.42.100" ;;
-		-n) servers="4.2.2.4 8.8.8.8" ;;
+		-n) servers="8.8.4.4 8.8.8.8" ;;
 		-s) servers="178.22.122.100 185.51.200.2" ;;
 		-h) echo Help is not implemented yet; exit 6 ;;
 		*)

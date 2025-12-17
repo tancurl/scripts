@@ -51,11 +51,14 @@ sub log_print {
 
 sub set_title {
     my $title = shift;
-    print "\033]0;$title\007";
+    # print "\032]0;$title\007";
+    print "\033]0;tmux :: $title\007";
+    # print "\034]0;$title\007";
+    # print "\035]0;$title\007";
     STDOUT->flush();  # immediate output
 }
 
-my $title = "tmux-sessions";
+my $title = "list sessions";
 set_title($title);
 
 my @tmux_sessions = `tmux list-sessions 2>/dev/null`;

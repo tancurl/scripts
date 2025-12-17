@@ -27,7 +27,7 @@ err='[FAIL]'
 
 # circle {{{
 circle() {
-	magick \
+	convert \
 		${iname} \( \
 			+clone \
 			-threshold 100% \
@@ -35,17 +35,17 @@ circle() {
 			-draw \
 				"roundrectangle 0,0 ${x},${y} ${midx},${midy}" \
 		\) \
-		-channel-fx '| gray=>alpha'\
+        -alpha off \
+        -compose CopyOpacity \
+        -composite \
 		${oname}
 
-	${path}/imagemagick-shadow -i ${oname}
-	${path}/imagemagick-trim -i ${oname}
 }
 # }}}
 
 # square {{{
 square() {
-	magick \
+	convert \
 		${iname} \( \
 			+clone \
 			-size ${x}x${y} \
@@ -54,12 +54,14 @@ square() {
 			-draw \
 				"roundrectangle 0,0 ${x},${y} ${sqrp},${sqrp}" \
 		\) \
-		-channel-fx '| gray=>alpha'\
+        -alpha off \
+        -compose CopyOpacity \
+        -composite \
 		${oname}
 
-	${path}/imagemagick-shadow -i ${oname}
-	${path}/imagemagick-trim -i ${oname}
 }
 # }}}
 
+
 square
+imagemagick-shadow -i ${oname} -o ${oname}

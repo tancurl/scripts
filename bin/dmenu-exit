@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #  ____     _ 
 # |  _ \   | |
 # | |_) |  | |
@@ -113,7 +113,9 @@ choice=$(printf '%s\n' \
 #fi
 
 prompt='exit'
-args="-g 2 -l 1 ${args}"
+if [ ${patched} -eq 1 ]; then
+    args="-g 2 -l 1 ${args}"
+fi
 double_check=$(printf 'no\nyes' | ${runner} ${args})
 
 SUDO_ASKPASS=$(which dmenupass)
