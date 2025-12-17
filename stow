@@ -1,7 +1,7 @@
 #!/bin/sh
 
 name="bin"
-target="${HOME}/.local/${name}"
+target="${HOME}/.local"
 
 if [ ! -d "${target}" ]; then
 	mkdir "${target}"
@@ -9,10 +9,10 @@ fi
 
 case "${1}" in
     -d|--delete|del|delete|d|rm)
-        find ${target} -type l -exec unlink {} \;
+        find ${name} -type f -exec unlink $target/{} \;
         ;;
     *)
-        stow "${name}" -t "${target}"
+        stow "${name}" -t "${target}/${name}"
         ;;
 esac
 
