@@ -1,0 +1,25 @@
+#!/bin/sh
+#  ____     _ 
+# |  _ \   | |
+# | |_) |  | |
+# |  __/ |_| |
+# |_|   \___/ 
+#             
+
+set -e
+
+pkg="xbps-query -l"
+# pkg="pacman -Q"
+
+mem=$(free -h | grep ^Mem | awk '{print $3"/"$2;}')
+pkgs=$($pkg | wc -l)
+# pkgs="nix(?)"
+uptime=$(uptime | sed 's/...:..:..  up //' | awk -F ',' '{print $1;}' | sed 's/ day/d/')
+date=$(date '+%H:%M %a %y-%m-%d')
+kernel=$(uname -r)
+
+printf '%s\n' \
+	"${date}, Uptime: ${uptime}" "" \
+	"Memory: ${mem}, User: ${USER}" "" \
+	"Packages: ${pkgs}, Kernel: ${kernel}" "" \
+| cowsay -f tux # | lolcat

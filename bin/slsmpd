@@ -1,0 +1,33 @@
+#!/bin/sh
+#  ____     _ 
+# |  _ \   | |
+# | |_) |  | |
+# |  __/ |_| |
+# |_|   \___/ 
+#             
+
+# set -e
+
+# mpd_status {{{
+mpd_status() {
+	mpdstatus=$(mpc status '%state%' 2>/dev/null)
+	if [ -n ${mpdstatus} ]; then
+		mpdtracks=$(mpc status '[%currenttime%-%totaltime%/%songpos%]')
+	fi
+	case ${mpdstatus} in
+		playing) mpd=">${mpdtracks}" ;;
+		paused)  mpd="=${mpdtracks}" ;;
+		*) mpd='♦' ;;
+	esac
+
+	if [ -z "${mpd}" ]; then
+		printf '%s' "♦"
+	# elif [ "${mpd}" = "0" ]; then
+	# 	printf '%s' "-"
+	else
+		printf '%s' ${mpd}
+	fi
+}
+# }}}
+
+mpd_status

@@ -1,0 +1,35 @@
+#!/bin/sh
+#  ____     _ 
+# |  _ \   | |
+# | |_) |  | |
+# |  __/ |_| |
+# |_|   \___/ 
+#             
+
+# Variables {{{
+path="${HOME}/.local/bin"
+
+patched=$(dmenu -v | grep -c 'hos-patched')
+if [ ${patched} -eq 1 ]; then
+	patches="-c -bw 2 -g 1 -l 11 -r"
+fi
+dmenu="dmenu \
+		-i \
+		${patches} \
+		${@} \
+		"
+script_name=$(echo $0 | awk -F '/' '{print $NF;}')
+#script_name="ScriptRunner"
+# }}}
+
+script=$(find ${path} -mindepth 1 -maxdepth 1 -type f,l \
+	| awk -F '/' '{print $NF;}' \
+	| sort \
+	| $dmenu -p "${script_name}")
+
+if [ -z "${script}" ]; then
+	exit 31
+else
+	${path}/$script "${@}"
+fi
+

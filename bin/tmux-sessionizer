@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+
+fzf="fzf -i --no-unicode --prompt=: --info=inline --header-first --header tmux-sessionizer --height 10% --reverse"
+
+session=$({ \
+	find \
+		~/dev/primejade/ ~/w ~/documents/ ~/dev/soda-sh/ ~ \
+		-maxdepth 2 \
+		-mindepth 1 \
+		-type d; \
+	find ~/dev/hossein-lap/ \
+		-maxdepth 1 \
+		-mindepth 1 \
+		-type d; \
+	} | grep -v '\/\.git$' | ${fzf})
+
+if [ -z "${session}" ]; then
+	exit 17
+else
+	inside=$(tmux list-sessions 2>/dev/null | awk -F ':' '{print $1;}' | grep -c ${session})
+	if [ "${inside}" != '0' ]; then
+		session_name=${session}
+	else
+		session_name=$(basename $(dirname ${session}))/$(basename ${session})
+	fi
+	session_name=$(echo "${session_name}" | tr . _)
+fi
+
+if [ -n "${session}" ]; then
+	if ! tmux has-session -t "${session_name}" 2>/dev/null; then
+		tmux new-session -s "${session_name}" -c "${session}" -d
+	fi
+
+	if [ -z "${TMUX}" ]; then
+		tmux att -t ${session_name}
+	else
+		tmux switchc -t ${session_name}
+	fi
+else
+	exit 34
+fi

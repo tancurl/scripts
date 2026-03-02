@@ -1,0 +1,325 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use File::Basename;
+use Term::ANSIColor;
+use Getopt::Long;
+
+# variables {{{
+my $prompt = basename($0);
+
+my $width = 80;    # fixed maximum width for each column
+my $color = 1;
+my $tasks_file = ".tasks.yml";
+my %color = (
+    skelet => "black",
+    header => "white",
+    done   => "blue",
+    active => "green",
+    test   => "yellow",
+    closed => "red",
+);
+# }}}
+
+# argument parsing {{{
+GetOptions(
+    'c|color'    => \$color,
+    'w|width=s'  => \$width,
+    't|file=s'   => \$tasks_file,
+) or die "$prompt: Error in command line arguments. Use -h for help.\n";
+# }}}
+
+# read yaml file {{{
+# read_yaml_tasks($filename) -> arrayref_of_hashrefs
+sub read_yaml_tasks {
+    my ($filename) = @_;
+    open my $fh, '<', $filename or die "Can't open '$filename': $!";
+
+    my @tasks;
+    my $in_tasks_section = 0;
+    my $current_task;
+    my $item_indent_level;
+    my $map_entry_indent;
+
+    while (defined(my $line = <$fh>)) {
+        chomp $line;
+        $line =~ s/\r$//;
+
+        next if $line =~ /^\s*$/;
+        next if $line =~ /^\s*#/;
+
+        if (!$in_tasks_section) {
+            if ($line =~ /^\s*tasks\s*:\s*$/) {
+                $in_tasks_section = 1;
+                next;
+            } else {
+                next;
+            }
+        }
+
+        if ($line =~ /^(\s*)-\s*(.*)$/) {
+            $item_indent_level = length($1);
+            $map_entry_indent   = $item_indent_level + 2;
+            push @tasks, $current_task if defined $current_task;
+            $current_task = {};
+            my $rest = $2;
+            if (defined $rest && $rest =~ /\S/) {
+                _parse_inline_map($rest, $current_task);
+            }
+            next;
+        }
+
+        unless (defined $current_task) {
+            warn "Ignoring mapping line outside of any item: $line\n";
+            next;
+        }
+
+        if ($line =~ /^(\s*)(\S.*)$/) {
+            my $indent = length($1);
+            my $content = $2;
+            if ($indent < $map_entry_indent) {
+                if ($indent == 0) {
+                    push @tasks, $current_task if defined $current_task;
+                    $current_task = undef;
+                    last;
+                } else {
+                    push @tasks, $current_task if defined $current_task;
+                    $current_task = undef;
+                    if ($content =~ /^-\s*(.*)$/) {
+                        $in_tasks_section = 1;
+                        $item_indent_level = $indent;
+                        $map_entry_indent  = $item_indent_level + 2;
+                        $current_task = {};
+                        my $rest = $1;
+                        _parse_inline_map($rest, $current_task) if defined $rest && $rest =~ /\S/;
+                        next;
+                    } else {
+                        next;
+                    }
+                }
+            }
+
+            if ($content =~ /^([^:]+):\s*(.*)$/) {
+                my ($key, $val) = ($1, $2);
+                $key =~ s/^\s+|\s+$//g;
+                $val =~ s/^\s+|\s+$//g;
+                $current_task->{$key} = $val;
+                $current_task->{__last_key} = $key;
+            } else {
+                if (exists $current_task->{__last_key}) {
+                    my $last_key = $current_task->{__last_key};
+                    $current_task->{$last_key} .= " " . $content;
+                } else {
+                    warn "Ignoring line (no key to attach to): $line\n";
+                }
+            }
+        }
+    }
+
+    close $fh;
+    push @tasks, $current_task if defined $current_task;
+    for my $task_href (@tasks) { delete $task_href->{__last_key} if ref $task_href eq 'HASH'; }
+    return \@tasks;
+}
+# }}}
+
+# inline parser {{{
+sub _parse_inline_map {
+    my ($text, $hashref) = @_;
+    if ($text =~ /^\s*([^:]+):\s*(.*)$/) {
+        my ($k, $v) = ($1, $2);
+        $k =~ s/^\s+|\s+$//g;
+        $v =~ s/^\s+|\s+$//g;
+        $hashref->{$k} = $v;
+        $hashref->{__last_key} = $k;
+    }
+}
+# }}}
+
+# word wrap {{{
+# word-wrap a string into lines no longer than $width
+sub wrap_text {
+    my ($text, $width) = @_;
+    $text //= '';
+    return [''] if $width <= 0;
+    my @out;
+    for my $paragraph (split /\n/, $text) {
+        $paragraph =~ s/^\s+|\s+$//g;
+        if ($paragraph eq '') {
+            push @out, '';
+            next;
+        }
+        my @words = split /(\s+)/, $paragraph; # keep whitespace tokens
+        my $line = '';
+        for my $token (@words) {
+            if ($token =~ /^\s+$/) {
+                next if $line eq '';
+                $token = ' ';
+            }
+            if (length($line) + length($token) <= $width) {
+                $line .= $token;
+            } else {
+                if ($line ne '') {
+                    $line =~ s/\s+$//;
+                    push @out, $line;
+                    $line = '';
+                }
+                while (length($token) > $width) {
+                    push @out, substr($token, 0, $width);
+                    $token = substr($token, $width);
+                }
+                if ($token =~ /^\s+$/) {
+                    $line = '';
+                } else {
+                    $line = $token;
+                }
+            }
+        }
+        push @out, $line =~ s/\s+$//r if defined $line;
+    }
+    return \@out;
+}
+# }}}
+
+# print table {{{
+# Print tasks as a wrapped table with fixed column width. Columns: name | desc | date | stat
+sub print_tasks_table {
+    my ($tasks_ref) = @_;
+
+    my @cols = qw(name description date status);
+
+    # compute max width for each column (at least header width), but cap at $width
+    my %width = map { $_ => length($_) } @cols;
+    for my $t (@$tasks_ref) {
+        for my $c (@cols) {
+            my $val = defined $t->{$c} ? $t->{$c} : '';
+            for my $line (split /\n/, $val) {
+                my $len = length($line);
+                $width{$c} = $len if $len > $width{$c};
+            }
+        }
+    }
+    # apply fixed maximum
+    my $sep = "";
+    my $inner_item = 0;
+    for my $c (@cols) {
+        $inner_item++;
+        my $dangling = "-";
+        unless (scalar(@cols) == $inner_item) {
+            $dangling = '-+-';
+        }
+        $width{$c} = $width if $width{$c} > $width;
+        $sep = $sep . "-" x $width{$c} . $dangling;
+    }
+
+    # build header row with $pipe separators
+    my $pipe = " | ";
+    if ($color) {
+        $pipe = sprintf("%s%s%s", color("bold $color{skelet}"), $pipe, color("reset"));
+    }
+    my @hdr_cells;
+    if ($color) {
+        foreach my $col (@cols) {
+            my $blank = " " x ($width{$col} - length($col));
+            my $_col = sprintf("%s%s%s%s", color("bold $color{header}"), $col, color("reset"), $blank);
+            push(@hdr_cells, $_col);
+        }
+    } else {
+        @hdr_cells = map { sprintf "%-*s", $width{$_}, $_ } @cols;
+    }
+    my $header = join $pipe, @hdr_cells;
+
+    # separator line: match header length with dashes
+
+    # commented for debug
+    print " $header\n";
+    $sep = "-$sep";
+    $sep =~ s/-/=/g;
+    if ($color) {
+        $sep = sprintf("%s%s%s", color("bold $color{skelet}"), $sep, color("reset"));
+    }
+    print("$sep\n");
+
+    # rows with wrapping
+    my $outter_item = 0;
+    for my $t (@$tasks_ref) {
+        $outter_item++;
+        # wrap each column value into arrayref of lines
+        my %wrapped;
+        my $max_lines = 0;
+        for my $c (@cols) {
+            my $v = defined $t->{$c} ? $t->{$c} : '';
+            my $lines_ref = wrap_text($v, $width{$c});
+            $wrapped{$c} = $lines_ref;
+            $max_lines = @$lines_ref if @$lines_ref > $max_lines;
+        }
+
+        # print row across multiple wrapped lines
+        for my $row_idx (0 .. $max_lines - 1) {
+            my @cells;
+            my $tmp_row = 0;
+            for my $c (@cols) {
+                $tmp_row++;
+                my $line = $wrapped{$c}[$row_idx] // '';
+                $line =~ s/\s+$//;
+                if ($color) {
+                    if ($tmp_row == scalar(@cols)) {
+                        $line = sprintf("%s%s%s", color("bold $color{$line}"), $line, color("reset")) if $line;
+                    }
+                }
+                push(@cells, sprintf("%-*s", $width{$c}, $line));
+            }
+            print(" " . join($pipe, @cells) . "\n");
+        }
+
+        # optional separator after each task but the last
+        unless (scalar(@$tasks_ref) == $outter_item) {
+            $sep =~ s/=/-/g;
+            print "$sep\n";
+        }
+
+    }
+}
+# }}}
+
+# usage
+if (-f $tasks_file) {
+    my $tasks_ref = read_yaml_tasks($tasks_file);
+    print("\n");
+    print_tasks_table($tasks_ref);
+    print("\n");
+} else {
+    print(STDERR "$prompt: no task file found, create one? (y/N) ");
+    my $create = <STDIN>;
+    chomp($create);
+    if ($create =~ /[yY]/) {
+        print("> name: ");
+        my $name = <STDIN>;
+        print("> description: ");
+        my $description = <STDIN>;
+        print("> date: ");
+        my $date = <STDIN>;
+        print("> status: ");
+        my $status = <STDIN>;
+
+        chomp($name);
+        chomp($description);
+        chomp($date);
+        chomp($status);
+
+        open(my $fh, '>', $tasks_file) or die "Could not open file '$tasks_file' $!";
+        print($fh "tasks:\n");
+        print($fh "- $name\n");
+        print($fh "  $description\n");
+        print($fh "  $date\n");
+        print($fh "  $status\n");
+        close($fh);
+    } else {
+        print(STDERR "Abort.\n");
+        exit 1;
+    }
+}
+
+# 1;
+

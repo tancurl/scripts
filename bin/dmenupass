@@ -1,0 +1,18 @@
+#!/bin/sh
+
+# This script is the SUDO_ASKPASS variable, meaning that it will be used as a
+# password prompt if needed.
+
+tmp="${1}"
+dmenu -P -p "${tmp}" </dev/null
+#  -fn 'Liberation Mono:size=16'
+
+# if [ -z ${DISPLAY} ]; then
+# 	stty -echo
+# 	read -p "${1}" PASS
+# 	echo $PASS
+# 	unset PASS
+# 	stty echo
+# else
+# 	dmenu -P -p "$1" <&- && echo
+# fi

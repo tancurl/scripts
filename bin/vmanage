@@ -1,0 +1,313 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use File::Basename;
+use File::Path qw(make_path);
+use Getopt::Long;
+use Term::ANSIColor;
+
+# # NOTE: Deprecated
+# use YAML::Tiny;
+#### Dependencies ####
+# sudo apt install \
+#     libyaml libyaml-libyaml-perl libyaml-perl libyaml-shell-perl \
+#     libyaml-tiny-perl \
+#     libjson-perl
+
+# Default values {{{
+my $help              = 0;
+my $detach            = 0;
+my $run               = "";
+my $save              = "";
+my $iso_path          = "";
+my @image_path;
+my @images;
+my $port_ssh          = "2323";
+my $port_forward      = "";
+my $headless          = 0;
+my $create            = "";
+my $port_vnc          = "3";
+my $vol_tag           = "host0";
+my $bridge_interface  = "br0";
+my $machine_ram       = "4096";
+my $machine_cpu       = "4";
+my $machine_name      = "virtual-machine";
+my $machine_desc      = "QEMU/KVM virtual machine";
+my $sharedfolder_path = "";
+my $image_format      = "";  # Optional: e.g., qcow2, raw
+my $script_name       = basename($0);
+my $script_path       = dirname($0) . "/";
+# }}}
+
+# printer {{{
+sub printer {
+    my $kind = $_[0];
+    my $message = $_[1];
+
+    print(
+        color("bold green").$script_name.color("reset").": ".
+        color("bold blue").$kind.color("reset").": ".
+        $message
+    );
+}
+# }}}
+
+# argument parser {{{
+GetOptions(
+    "display=s"   => \$port_vnc,
+    "headless"    => \$headless,
+    "d|detach"    => \$detach,
+    "create=s"    => \$create,
+    "vol_tag=s"   => \$vol_tag,
+    "ssh=s"       => \$port_ssh,
+    "pforward=s"  => \$port_forward,
+    "ram=s"       => \$machine_ram,
+    "cpu=s"       => \$machine_cpu,
+    "name=s"      => \$machine_name,
+    "desc=s"      => \$machine_desc,
+    "h|help"      => \$help,
+    "s|save"      => \$save,
+    "r|run=s"     => \$run,
+    "image=s@"    => \@image_path,
+    "interface=s" => \$bridge_interface,
+    "iso=s"       => \$iso_path,
+    "share=s"     => \$sharedfolder_path,
+    "format=s"    => \$image_format,
+) or die "Invalid options. Use --help for usage info.\n";
+# }}}
+
+# print help and exit {{{
+sub print_help {
+    my $message = "Usage: $script_name [options]\n".
+                  "\n".
+                  "Options:\n".
+                  "    --save                   Create config file          don't run the vm\n".
+                  "    --create     NAME,SIZE   Create new image            <NAME>,<SIZE>\n".
+                  "    --run        FILE        Run the existing vm config  \n".
+                  "    --image      FILE        Path to the disk image      .img\n".
+                  "    --iso        FILE        Path to ISO file            for installation\n".
+                  "    --ssh        PORT        SSH port to forward         default: ${port_ssh}\n".
+                  "    --pforward   SRC:DST     port forward                comma separated: e.g. 8088:80,9090:6304,9099:21\n".
+                  "    --cpu        NUM         How many core pass to vm    default: ${machine_cpu}\n".
+                  "    --ram        MB          How much ram pass to vm     default: ${machine_ram}\n".
+                  "    --display    NUM         VNC display port            default: ${port_vnc}\n".
+                  "    --vol_tag    NAME        Tag used for VirtFS mount   default: ${vol_tag}\n".
+                  "    --interface  NAME        Network bridge interface    default: ${bridge_interface}\n".
+                  "    --share      DIR         Shared folder path          default: '${sharedfolder_path}'\n".
+                  "    --format     TYPE        Image format                e.g. qcow2, raw -- Optional\n".
+                  "    --name       NAME        Machine's name              e.g. 'work-machine-debian'\n".
+                  "    --desc       DESC        More info about machine     e.g. 'New library -- test env'\n".
+                  "    --headless               Run in headless mode        omit VNC\n".
+                  "    -h, --help               Show this help message\n";
+    print($message);
+    exit 0;
+}
+# }}}
+
+# create image {{{
+sub create_image {
+
+    print("Enter image name (no ext): ");
+    my $name = <STDIN>;
+    chomp($name);
+    $name = $name.'.img' unless $name =~ /\.img$/;
+    $name =~ s/ /-/g;
+
+    print("Enter image size (in GB):  ");
+    my $size = <STDIN>;
+    chomp($size);
+    my $format = 'qcow2';
+
+    my @cmd = (
+        "qemu-img", "create", "-f", $format, $name, $size,
+    );
+    unless (-f $name) {
+        exec(@cmd);
+    } else {
+        warn("$script_name: qemu-img: Image exists");
+        warn(`du $name`);
+        die("\n");
+    }
+}
+# }}}
+
+if ($detach) {
+    print "Running in detach mode\n";
+    my $pid = fork();
+    exit(1) if $pid < 0;
+    exit(0) if $pid > 0;
+}
+
+print_help() if $help;
+
+if ($create) {
+    create_image($create);
+}
+
+# extra stuff {{{
+# make image path full path
+foreach my $image (@image_path) {
+    $image = $ENV{'PWD'}.'/'.$image if -f $image;
+    unless ($image =~ /$ENV{'PWD'}/) {
+        $image = $ENV{'PWD'}.'/'.$image if -f $image;
+    }
+    push @images, $image;
+}
+
+# derived values
+my $image_name = "test"; # basename($image_path, ".img") if $image_path;
+
+# manage vnc port
+$port_vnc =~ s/:// if $port_vnc;
+
+# # manage vms -- WIP
+# make_path(".state");
+
+# create shared folder structure
+make_path($sharedfolder_path) if defined $sharedfolder_path;
+
+# handle port-forward
+my $pfargs = "user,hostfwd=tcp::${port_ssh}-:22";  # default ssh port
+my @_pfs = split(",", $port_forward);
+for my $_pf (@_pfs) {
+    my @_ps = split(":", $_pf);
+    my $port_host = $_ps[0];
+    my $port_guest = $_ps[1];
+    $pfargs .= ",hostfwd=tcp::${port_host}-:${port_guest}" if $pfargs;
+}
+
+# view running mode
+my $mode = "Live" unless $port_vnc;
+$mode ||= "Normal";
+# }}}
+
+# read config {{{
+sub config_manager {
+}
+# }}}
+
+# show environment {{{
+sub print_env {
+    # config file name -- generate
+    my $config_filename = "more test"; # dirname($image_path)."/$script_name-$image_name.conf";
+
+    my $state = "config:\n".
+                "  machine:\n".
+                "    name: '$machine_name'\n".
+                "    cpu: '$machine_cpu'\n".
+                "    ram: '$machine_ram'\n".
+                "    desc: '$machine_desc'\n".
+                "  image:\n".
+                "    name: '$image_name'\n".
+                # "    path: '$image_path'\n".
+                "    format: '$image_format'\n".
+                "  iso:\n".
+                "    path: '$iso_path'\n".
+                "  script:\n".
+                "    name: '$script_name'\n".
+                "    path: '$script_path'\n".
+                "  port:\n".
+                "    ssh: '$port_ssh'\n".
+                "    vnc: '$port_vnc'\n".
+                "    forward: '$port_forward'\n".
+                "  sharedfolder:\n".
+                "    path: '$sharedfolder_path'\n".
+                "  vol:\n".
+                "    tag: '$vol_tag'\n".
+                "  bridge:\n".
+                "    interface: '$bridge_interface'\n";
+    print($state);
+
+    my $config_double_check;
+    if (-f $config_filename) {
+        printer("$config_filename", "config file exists, would you like to overwrite it? [y/N] ");
+        $config_double_check = <STDIN>;
+        chomp($config_double_check);
+    }
+
+    if ($config_double_check =~ /[yY]/) {
+        open(FH, '>', $config_filename) or die $!;
+        print(FH "# QEMU Virtual Machine is running in $mode mode\n".
+                 "# \n".
+                 "#  or (recommended): vmanage --run $config_filename\n".
+                 "# \n".
+                 $state
+        );
+        close(FH);
+        printer("$config_filename", "config file generated\n");
+    } else {
+        printer("$config_filename", "not even touched\n");
+    }
+}
+
+# }}}
+
+# Launch QEMU {{{
+sub vmlauncher {
+    my $qemu = `which qemu-system-x86_64`;
+    my @_name = split("/", $qemu);
+    my $name = $_name[-1];
+    chomp($qemu);
+    chomp($name);
+
+    if ($qemu) {
+        if ($save) {
+            print_env();
+            exit 0;
+        }
+
+        if ($run) {
+            my $_data = YAML::Tiny->read($run);
+            my $data = $_data->[0]->{config};
+            $bridge_interface = $data->{bridge}->{interface} if $data->{bridge}->{interface} ne '';
+            $image_format = $data->{image}->{format} if $data->{image}->{format} ne '';
+            $image_name = $data->{image}->{name} if $data->{image}->{name} ne '';
+            $iso_path = $data->{iso}->{path} if $data->{iso}->{path} ne '';
+            $machine_cpu = $data->{machine}->{cpu} if $data->{machine}->{cpu} ne '';
+            $machine_desc = $data->{machine}->{desc} if $data->{machine}->{desc} ne '';
+            $machine_name = $data->{machine}->{name} if $data->{machine}->{name} ne '';
+            $machine_ram = $data->{machine}->{ram} if $data->{machine}->{ram} ne '';
+            $port_forward = $data->{port}->{forward} if $data->{port}->{forward} ne '';
+            $port_ssh = $data->{port}->{ssh} if $data->{port}->{ssh} ne '';
+            $port_vnc = $data->{port}->{vnc} if $data->{port}->{vnc} ne '';
+            $script_name = $data->{script}->{name} if $data->{script}->{name} ne '';
+            $script_path = $data->{script}->{path} if $data->{script}->{path} ne '';
+            $sharedfolder_path = $data->{sharedfolder}->{path} if $data->{sharedfolder}->{path} ne '';
+            $vol_tag = $data->{vol}->{tag} if $data->{vol}->{tag} ne '';
+        }
+
+        unless (@images) {
+            print(STDERR "[warning] $script_name: $name: No image provided\n");
+        }
+
+        # exec command
+        my @cmd = (
+            $qemu,
+            "-boot", "order=d",
+            "-m", $machine_ram,
+            "-smp", $machine_cpu,
+            "-enable-kvm",
+            "-net", "nic,model=virtio",
+            "-net", $pfargs,
+        );
+
+        foreach my $image (@images) {
+            # compose drive argument
+            my $drive_arg = "file=$image";
+            $drive_arg .= ",format=$image_format" if $image_format;
+            push @cmd, "-drive", $drive_arg if $image;
+        }
+        push @cmd, "-cdrom", "${iso_path}" if $iso_path;
+        push @cmd, "-vnc", ":${port_vnc}" if $headless;
+        push @cmd, "-virtfs", "local,path=${sharedfolder_path},mount_tag=${vol_tag},security_model=mapped,id=${vol_tag}" if $sharedfolder_path;
+        print("@cmd\n");
+        exec @cmd;
+
+        die("$script_name: $name: command not found\n");
+    }
+}
+# }}}
+
+vmlauncher();
+

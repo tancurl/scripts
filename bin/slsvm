@@ -1,0 +1,27 @@
+#!/bin/sh
+
+names=$(ps aux \
+	| grep -v grep \
+	| grep qemu-system \
+    | sed 's/.*-hda \(.*.img\).*/\1/' \
+    | sed 's,\.\/,,' \
+    | sed 's,\/,,' \
+    | sed 's,\.img$,,' \
+    | tr -d '\n' \
+)
+
+# printf 'v:%s,%s' ${names}
+
+for i in ${names}; do
+	if [ -z ${out} ]; then
+		out="${i}"
+	else
+		out="${out},${i}"
+	fi
+done
+
+if [ -z "${out}" ]; then
+	printf ♦
+else
+	printf 'v:%s' $out
+fi

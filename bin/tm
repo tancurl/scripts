@@ -1,0 +1,166 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use IO::Handle;
+use POSIX qw(strftime);
+use Term::ANSIColor;
+use Cwd qw(abs_path getcwd);
+
+my $colorful = 1;  # set 0 to disable colored logs
+
+# helper: logger {{{
+sub logger {
+    my ($level, $message) = @_;
+    my ($package, $filename, $line) = caller();
+    $filename = substr($filename, rindex($filename, '/') + 1);
+    my $current_date = strftime("%Y-%m-%d %H:%M:%S", localtime);
+    my $log_name = "info";
+    my $log_color = 'white';
+    if ($level eq 2) {
+        $log_name = "debug";
+        $log_color = 'blue';
+    } elsif ($level eq 3) {
+        $log_name = "warn";
+        $log_color = 'yellow';
+    } elsif ($level eq 4) {
+        $log_name = "error";
+        $log_color = 'red';
+    }
+    if ($level) {
+        if ($colorful) {
+            if ($level eq 4) {
+                die("$current_date $filename:$line " . color('bold ' . $log_color) . "$log_name" . color('reset') . " $message\n");
+            } elsif ($level eq 3) {
+                warn("$current_date $filename:$line " . color('bold ' . $log_color) . "$log_name" . color('reset') . " $message\n");
+            } else {
+                print "$current_date $filename:$line " . color('bold ' . $log_color) . "$log_name" . color('reset') . " $message\n";
+            }
+        } else {
+            if ($level eq 4) {
+                die("$current_date $filename:$line $message\n");
+            } elsif ($level eq 3) {
+                warn("$current_date $filename:$line $message\n");
+            } else {
+                print "$current_date $filename:$line $message\n";
+            }
+        }
+    }
+    exit 1 if $level eq 4;
+}
+# }}}
+
+# helper: set title {{{
+sub set_title {
+    my ($arg) = @_;
+    my $prefix = getpwuid($<) . '@' . `cat /etc/hostname`;
+    chomp $prefix;
+    my $path = defined $arg ? $arg : `pwd`;
+    chomp $path;
+    $path =~ s/\Q$ENV{HOME}\E/~/ if !defined $arg;
+    if ($path eq ".") {
+        my @lex = split("/", getcwd());
+        $path = "$lex[-2]/$lex[-1]";
+        print("$path\n");
+    }
+    if ($path eq "/") {
+        $path = "root";
+    }
+    my $title = "[$prefix] tmux in $path";
+    print "\033]0;$title\007";
+    STDOUT->flush();  # immediate output
+}
+# }}}
+
+# session name {{{
+my @session_names;
+if (@ARGV) {
+    @session_names = @ARGV;
+} else {
+    logger(4, "no path specified");
+}
+# }}}
+
+# worker: sessionizer {{{
+sub sessionizer {
+    my ($session_name, $detach) = @_;
+    my $subname = (caller(0))[3];
+    my $session_path;
+    if (-d $session_name) {
+        $session_path = abs_path($session_name);
+    } else {
+        logger(4, "$subname: $session_name: not a directory");
+    }
+
+    my @parts = split('/', $session_path);
+    my $basename = pop @parts // '';
+    my $dirname = pop @parts // '';
+    $dirname = "root" if $dirname eq "/";
+    $session_name = "$dirname/$basename";
+    $session_name =~ tr/./_/;
+
+    # print("name: $session_name, path: $session_path, detach: $detach\n");
+    # return;
+
+    # check if session exists
+    my $check = 0;
+    my @tmux_sessions = `tmux ls 2>/dev/null`;
+    chomp @tmux_sessions;
+    foreach my $session (@tmux_sessions) {
+        if ($session =~ /^$session_name:/) {
+            $check = 1;
+            last;
+        }
+    }
+    my @cmd;
+    if ($check == 0) {
+        if (exists $ENV{"TMUX"}) {
+            logger(1, "Created new tmux session: $session_name at $session_path");
+            system("tmux new-session -s '$session_name' -c $session_path -d");
+            if ($detach) {
+                logger(1, "Attached to tmux session: $session_name at $session_path");
+                system("tmux switchc -t '$session_name'");
+            }
+            return;
+        } else {
+            @cmd = ("tmux", "new-session", "-s", $session_name, "-c", $session_path);
+            unless ($detach) {
+                push(@cmd, "-d");
+            }
+            logger(1, "Created new tmux session: $session_name at $session_path");
+            system(@cmd);
+            return;
+        }
+    } else {
+        unless ($detach) {
+            logger(1, "[detach mode] session already exist: $session_name at $session_path");
+        } else {
+            # logger(2, "[detach mode] session already exist: $session_name at $session_path");
+            unless ($ENV{"TMUX"}) {
+                logger(1, "Attached to tmux session: $session_name at $session_path");
+                system("tmux attach -t '$session_name'");
+                return;
+            } else {
+                logger(1, "Switched to tmux session: $session_name at $session_path");
+                system("tmux switchc -t '$session_name'");
+                return;
+            }
+        }
+    }
+}
+# }}}
+
+set_title($session_names[-1]);
+
+my $session_count = 0;
+if (@ARGV) {
+    $session_count = scalar(@session_names);
+}
+
+for (my $idx = $#session_names; $idx >= 0; $idx--) { 
+    my $session = $session_names[$idx];
+    my $detach = 0;
+    $detach = 1 unless $idx;
+    sessionizer($session, $detach);
+} 
+

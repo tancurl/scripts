@@ -1,0 +1,144 @@
+#!/usr/bin/env perl
+
+$| = 1;  # autoflush
+
+# helper {{{
+# shell WM_CLASS {{{
+sub set_title {
+    my $title = shift;
+    print "\033]0;$title\007";
+    STDOUT->flush();  # immediate output
+}
+# }}}
+
+# run shell command {{{
+sub commander {
+    my $subname = (caller(0))[3];
+    my @commands = @_;
+    print("[$subname] $username\@$ip_address @commands\n");
+    my $_command = "@commands";
+    my $_cmd_output = `$_command`;
+    my $cmd_exit_code = $? >> 8;
+    chomp($_cmd_output);
+    my @cmd_output = split("\n", $_cmd_output);
+    if ($cmd_exit_code) {
+        print(STDERR "error: [$subname] $username\@$ip_address @commands\n");
+    }
+    return (\@cmd_output, $cmd_exit_code);
+}
+# }}}
+
+# find {{{
+sub finder {
+    my $subname = (caller(0))[3];
+    my ($path, $type, $pattern) = @_;
+    $path =~ s,/$,,;  # remove trailing /
+
+    print(STDERR "[$subname] Please specify which directory to search\n") unless -d $path;
+
+    my @dirs;
+    opendir (my $dir, $path);
+    while (my $entry = readdir $dir) {
+        my $full_path = "$path/$entry";
+        next if $entry eq '.' or $entry eq '..';
+
+        if ($type eq "d") {
+            next unless -d $full_path;
+        } elsif ($type eq "f") {
+            next unless -f $full_path;
+        } elsif ($type eq "l") {
+            next unless -l $full_path;
+        } else {
+            next unless -e $full_path;
+        }
+
+        if ($entry =~ /$pattern/) {
+            push(@dirs, $entry)
+        }
+
+    }
+    return @dirs;
+    closedir $dir;
+}
+
+# }}}
+
+# }}}
+
+my $HOME = $ENV{"HOME"};
+my @root_directories = (
+    "$HOME/dev/primejade/hos-tools",
+    "$HOME/dev/primejade/hos-workflow",
+    "$HOME/dev/hossein-lap",
+    "$HOME/dev/primejade/github",
+);
+
+my $title = "tmux-sessionizer";
+set_title($title);
+my $TMUX = $ENV{"TMUX"} // "";
+
+my @persist_directories;
+foreach my $root_directory (@root_directories) {
+    my @directories = finder("$root_directory", "d");
+    foreach my $directory (@directories) {
+        my $full_path = "$root_directory/$directory";
+        push(@persist_directories, $full_path);
+    }
+}
+
+my @sorted_directories = sort @persist_directories;
+my $input = join("\n", @sorted_directories);
+my $session_path = qx(echo "$input" | fzf --preview 'ls {}');
+
+my @_directory_name = split("/", $session_path);
+my $session_name = "$_directory_name[-2]/$_directory_name[-1]";
+$session_name =~ tr/\./_/;
+
+if ($session_name eq "" || $session_name eq "/") {
+    exit 0;
+}
+
+my @active_sessions;
+my @_sessions = `tmux list-sessions 2>/dev/null`;
+foreach my $line (@_sessions) {
+    if ($line =~ /^([^:]+)/) {  # Match the session name
+        chomp($line);
+        my @tmp_line = split(/:/, $line);
+        my $_session_name = $tmp_line[0];
+        push(@active_sessions, $_session_name);
+    }
+}
+
+chomp($session_name);
+chomp($session_path);
+
+my $session_exists = 0;
+my $inside_tmux = 0;
+
+foreach my $active_session (@active_sessions) {
+    if ($active_session eq $session_name) {
+        $session_exists = 1;
+    }
+}
+
+if ($TMUX) {
+    $inside_tmux = 1;
+}
+
+if (defined $session_path && $session_path ne '/') {
+    
+    unless ($session_exists) {
+        system("tmux new-session -s $session_name -c $session_path -d");
+    }
+
+    if ($inside_tmux) {
+        system("tmux switchc -t $session_name");
+    } else {
+        system("tmux att -t $session_name");
+    }
+
+} else {
+    exit 34;
+}
+
+

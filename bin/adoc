@@ -1,0 +1,679 @@
+#!/usr/bin/env ruby
+
+require 'asciidoctor-pdf'
+require 'asciidoctor/extensions'
+require 'optparse'
+
+# variables {{{
+
+prompt = File.basename(__FILE__)
+font = {
+  share: "/usr/share/fonts/TTF",
+  local: "/home/hos/.local/share/fonts",
+}
+
+# }}}
+
+# helpers {{{
+
+# print usage {{{
+
+def print_usage
+  puts "Convert asciidoc files to pdf using asiidoctor's ruby API"
+  puts "                                                         "
+  puts "Usage: #{prompt} --input input.adoc --output output.pdf  "
+  puts "                                                         "
+  puts "Options:                                                 "
+  puts "        --input                                          "
+  puts "        --output                                         "
+  puts "        --type                                           "
+  puts "        --config                                         "
+  puts "        --language                                       "
+  puts "        --type                                           "
+  puts "        --style                                          "
+  return
+end
+
+# }}}
+
+# }}}
+
+# == defaults == {{{
+options = {
+  backend: 'pdf',
+  safe: :unsafe,
+  doctype: :book,
+  to_file: nil,
+  attributes: {
+    "chapter-label"          => "",
+    "chapter-signifier"      => "",
+    "toc"                    => nil,
+    "skip-front-matter"      => true,
+    "author"                 => "Hos Es",
+    "icons"                  => "font",
+    "icon-set"               => "fi",
+    "table-stripes"          => "even",
+    "title-page"             => false,
+    "sectnums"               => true,
+    "linenums"               => true,
+    "h-def-list"             => true,
+    "source-highlighter"     => "pygments",
+    "pygments-style"         => "vs",  # xcode
+    "pygments-linenums-mode" => "inline",
+    "rouge-style"            => "github.light",
+    "source-language"        => nil,
+    "pdf-themedir"           => ".",
+    "pdf-theme"              => nil,
+  }
+}
+
+# highlighter = {
+#   pygments: {
+#     "pygments-style"         => "github-dark",
+#     "pygments-linenums-mode" => "inline",
+#   },
+#   rouge: {
+#     "rouge-style"  => "github.light",
+#   }
+# }
+# if options[:attributes]["source-highlighter"] == "pygments"
+# end
+
+# }}}
+
+# == CLI parsing == {{{
+
+# === parsing === {{{
+cli = {}
+parser = OptionParser.new do |opts|
+  opts.banner = "Usage: #{File.basename(__FILE__)} [options]"
+  opts.on("-i", "--input FILE", "Input file (.adoc)")        { |v| cli[:input_file] = v }
+  opts.on("-o", "--output FILE", "Output PDF")               { |v| cli[:output_file] = v }
+  opts.on("--config FILE", "Config (theme) file")            { |v| cli[:theme_file] = v }
+  opts.on("--language STYLE", "Source code block language")  { |v| cli[:doc_language] = v }
+  opts.on("--doc-type TYPE", "Document type (article, book, inline)") do |v|
+    options[:doctype] = v.to_sym
+  end
+
+  opts.on("--toc", "Enable TOC (left, right, or default left)") do
+    options[:attributes]["toc"] = "left"  #  --toc default to "left"
+  end
+
+  opts.on("--no-toc", "Disable TOC") do
+    options[:attributes]["toc"] = nil
+  end
+
+
+  # Map attributes
+  options[:attributes].each do |key, default|
+    flag = "--#{key.to_s.gsub('_','-')}"
+    if [true, false].include?(default)
+      # boolean flags: --flag / --no-flag
+      opts.on(flag, "Enable #{key}") { options[:attributes][key] = true }
+      opts.on("--no-#{key.to_s.gsub('_','-')}", "Disable #{key}") { options[:attributes][key] = false }
+    else
+      opts.on("#{flag} VALUE", String, "Set #{key} (default: #{default})") do |v|
+        options[:attributes][key] = v
+      end
+    end
+  end
+
+  opts.on("-h", "--help", "Show this help") do
+    puts opts
+    exit
+  end
+end
+
+parser.parse!
+# }}}
+
+# === validation === {{{
+unless cli[:input_file]
+  puts "#{prompt}: Error: Input file is missing"
+  puts parser
+  exit 1
+end
+
+input_file  = cli[:input_file]
+output_file = cli[:output_file] || input_file.sub(/\.adoc$/, ".pdf")
+theme_file  = cli[:theme_file]
+# }}}
+
+# === vertical / horizontal definition list === {{{
+if options[:attributes]["h-def-list"]
+  Asciidoctor::Extensions.register do
+      treeprocessor do
+          process do |doc_name|
+              (doc_name.find_by context: :dlist).each do |dlist|
+                  dlist.style = 'horizontal'
+              end
+              nil
+          end
+      end
+  end
+end
+# }}}
+
+# }}}
+
+# == themes == {{{
+colorscheme = {
+
+  'default' => {
+    background:   "#FFFFFF",
+    text:         "#000000",
+    title:        '#333333',
+    link:         '#0066CC',
+    dim:          "#CCCCCC",
+    border:       "#DDDDDD",
+    table_border: "#DDDDDD",
+    table_bg_1:   "#F9F9F9",
+    table_bg_2:   "#FFFFFF",
+    quote_text:   '#555555',
+    quote_border: '#DDDDDD',
+    sidebar:      '#F9F9F9',
+    code_bg:      '#F5F5F5',
+    code_border:  '#DDDDDD',
+    highlight:    '#FFCC00',
+    note:         '#007BFF',
+    tip:          '#28A745',
+    caution:      '#FFC107',
+    warning:      '#DC3545',
+    important:    '#6F42C1',
+  },
+
+  'github_light' => {
+    background:   "#FFFFFF",
+    text:         "#000000",  #0d1117
+    title:        '#770000',  #24292E
+    link:         '#0366D6',
+    dim:          "#F6F8FA",
+    border:       "#E1E4E8",
+    table_border: "#E1E4E8",
+    table_bg_1:   "#F6F8FA",
+    table_bg_2:   "#FFFFFF",
+    quote_text:   '#586069',
+    quote_border: '#E1E4E8',
+    sidebar:      '#F6F8FA',
+    code_bg:      '#F6F8FA',
+    code_border:  '#E1E4E8',
+    highlight:    '#FFEB3B',
+    # note:         '#28A745',
+    # tip:          '#28A745',
+    # caution:      '#FFC107',
+    # warning:      '#DC3545',
+    # important:    '#6F42C1',
+
+    note:         '#19407c',
+    tip:          '#333333',
+    caution:      '#bf3400',
+    warning:      '#bf6900',
+    important:    '#bf0000',
+
+  },
+
+
+  'nord' => {
+    background:   "#2E3440",
+    text:         "#D8DEE9",
+    title:        '#EBCB8B',
+    link:         '#88C0D0',
+    dim:          "#3B4252",
+    border:       "#4C566A",
+    table_border: "#3B4252",
+    table_bg_1:   "#3B4252",
+    table_bg_2:   "#2E3440",
+    quote_text:   '#A3BE8C',
+    quote_border: '#4C566A',
+    sidebar:      '#3B4252',
+    code_bg:      '#3B4252',
+    code_border:  '#4C566A',
+    highlight:    '#BF616A',
+    note:         '#A3BE8C',
+    tip:          '#EBCB8B',
+    caution:      '#D08770',
+    warning:      '#BF616A',
+    important:    '#81A1C1',
+  },
+
+  'one_dark' => {
+    background:   "#282C34",
+    text:         "#ABB2BF",
+    title:        '#61AFEF',
+    link:         '#56B6C2',
+    dim:          "#3E4451",
+    border:       "#5C6370",
+    table_border: "#3E4451",
+    table_bg_1:   "#3E4451",
+    table_bg_2:   "#282C34",
+    quote_text:   '#5C6370',
+    quote_border: '#3E4451',
+    sidebar:      '#21252B',
+    code_bg:      '#1E2127',
+    code_border:  '#5C6370',
+    highlight:    '#E06C75',
+    note:         '#98C379',
+    tip:          '#56B6C2',
+    caution:      '#D19A66',
+    warning:      '#E06C75',
+    important:    '#C678DD',
+  },
+
+  'material_dark' => {
+    background:   "#263238",
+    text:         "#ECEFF1",
+    title:        '#FFAB40',
+    link:         '#82B1FF',
+    dim:          "#37474F",
+    border:       "#4B636E",
+    table_border: "#37474F",
+    table_bg_1:   "#37474F",
+    table_bg_2:   "#263238",
+    quote_text:   '#B0BEC5',
+    quote_border: '#4B636E',
+    sidebar:      '#1C1F24',
+    code_bg:      '#1C1F24',
+    code_border:  '#4B636E',
+    highlight:    '#FF5252',
+    note:         '#69F0AE',
+    tip:          '#FFFFFF',
+    caution:      '#FFB74D',
+    warning:      '#FF5252',
+    important:    '#7C4DFF',
+  },
+
+  'palenight' => {
+    background:   "#292D3E",
+    text:         "#A6ACCD",
+    title:        '#FFB86C',
+    link:         '#8BE9FD',
+    dim:          "#44475A",
+    border:       "#6272A4",
+    table_border: "#44475A",
+    table_bg_1:   "#44475A",
+    table_bg_2:   "#292D3E",
+    quote_text:   '#6272A4',
+    quote_border: '#44475A',
+    sidebar:      '#21222C',
+    code_bg:      '#21222C',
+    code_border:  '#6272A4',
+    highlight:    '#FF5555',
+    note:         '#50FA7B',
+    tip:          '#FFFFFF',
+    caution:      '#F1FA8C',
+    warning:      '#FFB86C',
+    important:    '#BD93F9',
+  },
+
+  'cyberpunk' => {
+    background:   "#0f0f0f",
+    text:         "#00ff00",
+    title:        '#ff00ff',
+    link:         '#00ffff',
+    dim:          "#1a1a1a",
+    border:       "#ff00ff",
+    table_border: "#1a1a1a",
+    table_bg_1:   "#1a1a1a",
+    table_bg_2:  "#0f0f0f",
+    quote_text:   '#ff00ff',
+    quote_border: '#1a1a1a',
+    sidebar:      '#1a1a1a',
+    code_bg:      '#1a1a1a',
+    code_border:  '#ff00ff',
+    highlight:    '#ffcc00',
+    note:         '#00ff00',
+    tip:          '#ffffff',
+    caution:      '#ff0000',
+    warning:      '#ffcc00',
+    important:    '#ff00ff',
+  },
+
+  'ayu_mirage' => {
+    background:   "#1F1F28",
+    text:         "#A6ACCD",
+    title:        '#F9D86E',
+    link:         '#7AA2F7',
+    dim:          "#2A2A36",
+    border:       "#3B3B47",
+    table_border: "#2A2A36",
+    table_bg_1:   "#2A2A36",
+    table_bg_2:   "#1F1F28",
+    quote_text:   '#A6ACCD',
+    quote_border: '#3B3B47',
+    sidebar:      '#2A2A36',
+    code_bg:      '#2A2A36',
+    code_border:  '#3B3B47',
+    highlight:    '#F9D86E',
+    note:         '#A6ACCD',
+    tip:          '#FFFFFF',
+    caution:      '#FF6C6B',
+    warning:      '#FFB86C',
+    important:    '#FF79C6',
+  },
+
+  'tokyo_night' => {
+    background:   "#1A1B26",
+    text:         "#A6ADC8",
+    title:        '#7AA2F7',
+    link:         '#BB9AF7',
+    dim:          "#2A2A3D",
+    border:       "#3B3B58",
+    table_border: "#2A2A3D",
+    table_bg_1:   "#2A2A3D",
+    table_bg_2:   "#1A1B26",
+    quote_text:   '#A6ADC8',
+    quote_border: '#3B3B58',
+    sidebar:      '#1A1B26',
+    code_bg:      '#1A1B26',
+    code_border:  '#3B3B58',
+    highlight:    '#F7768E',
+    note:         '#9ECE6A',
+    tip:          '#FFFFFF',
+    caution:      '#FF9E64',
+    warning:      '#FF6C6B',
+    important:    '#BB9AF7',
+  },
+
+  'oceanic_next' => {
+    background:   "#1B2B34",
+    text:         "#D8DEE9",
+    title:        '#F99157',
+    link:         '#66D9EF',
+    dim:          "#2C3E50",
+    border:       "#4F5B66",
+    table_border: "#2C3E50",
+    table_bg_1:   "#2C3E50",
+    table_bg_2:   "#1B2B34",
+    quote_text:   '#B0BEC5',
+    quote_border: '#4F5B66',
+    sidebar:      '#2C3E50',
+    code_bg:      '#2C3E50',
+    code_border:  '#4F5B66',
+    highlight:    '#FF6C6B',
+    note:         '#A3BE8C',
+    tip:          '#FFFFFF',
+    caution:      '#FFB86C',
+    warning:      '#FF6C6B',
+    important:    '#C678DD',
+  },
+
+  'github' => {
+    background:   "#0d1117",
+    text:         "#f0f6fc",
+    title:        '#9198a1',
+    link:         '#4493f8',
+    dim:          "#232323",
+    border:       "#9198a1",
+    table_border: "#2f353d",
+    table_bg_1:   "#151b23",
+    table_bg_2:   "#0d1117",
+    quote_text:   '#9198a1',
+    quote_border: '#3d444d',
+    sidebar:      '#151b23',
+    code_bg:      '#1e242a',
+    code_border:  '#3d444d',
+    highlight:    '#f78166',
+    note:         '#6a9e03',
+    tip:          '#ffffff',
+    caution:      '#9e0303',
+    warning:      '#9e6a03',
+    important:    '#8957e5',
+  },
+
+  'dracula' => {
+    background:   "#1e1f28",
+    text:         "#f8f8f2",
+    title:        '#bbbbbb',
+    link:         '#8ae9fc',
+    dim:          "#21262d",
+    border:       "#8b949e",
+    table_border: "#484f58",
+    table_bg_1:   "#21262d",
+    table_bg_2:   "#161b22",
+    quote_text:   '#6e7681',
+    quote_border: '#323543',
+    sidebar:      '#000000',
+    code_bg:      '#1e1f28',
+    code_border:  '#545454',
+    highlight:    '#f78166',
+    note:         '#50fa7b',
+    tip:          '#ffffff',
+    caution:      '#ff5454',
+    warning:      '#f0fa8b',
+    important:    '#bd92f8',
+  },
+
+  'solarized.dark' => {
+    background:   "#001e26",
+    text:         "#fdf6e3",
+    title:        '#839496',
+    link:         '#c61b6e',
+    dim:          "#25292a",
+    border:       "#839496",
+    table_border: "#484f58",
+    table_bg_1:   "#002731",
+    table_bg_2:   "#073642",
+    quote_text:   '#6e7681',
+    quote_border: '#484f58',
+    sidebar:      '#073642',
+    code_bg:      '#002b36',
+    code_border:  '#484f58',
+    highlight:    '#2075c7',
+    note:         '#728905',
+    tip:          '#cccccc',
+    caution:      '#d01b24',
+    warning:      '#a57705',
+    important:    '#6c71c4',
+  },
+
+  'gruvbox.dark' => {
+    background:   '#',
+    text:         '#',
+    title:        '#',
+    link:         '#',
+    dim:          '#',
+    border:       '#',
+    table_border: '#',
+    table_bg_1:   '#',
+    table_bg_2:   '#',
+    quote_text:   '#',
+    quote_border: '#',
+    sidebar:      '#',
+    code_bg:      '#',
+    code_border:  '#',
+    highlight:    '#',
+    note:         '#',
+    tip:          '#',
+    caution:      '#',
+    warning:      '#',
+    important:    '#',
+  },
+
+}
+# }}}
+
+body_theme = colorscheme['github_light']
+
+# == list of fonts == {{{
+fonts = {
+    'FreeSerif' => {
+        normal:      font[:share] + '/FreeSerif.ttf',
+        bold:        font[:share] + '/FreeSerifBold.ttf',
+        italic:      font[:share] + '/FreeSerifItalic.ttf',
+        bold_italic: font[:share] + '/FreeSerifBoldItalic.ttf',
+    },
+    'FreeSans' => {
+        normal:      font[:share] + '/FreeSans.ttf',
+        bold:        font[:share] + '/FreeSansBold.ttf',
+        italic:      font[:share] + '/FreeSansOblique.ttf',
+        bold_italic: font[:share] + '/FreeSansBoldOblique.ttf',
+    },
+    'FreeMono' => {
+        normal:      font[:share] + '/FreeMono.ttf',
+        bold:        font[:share] + '/FreeMonoBold.ttf',
+        italic:      font[:share] + '/FreeMonoOblique.ttf',
+        bold_italic: font[:share] + '/FreeMonoBoldOblique.ttf',
+    },
+    'LiberationSerif' => {
+        normal:      font[:share] + '/liberation/LiberationSerif-Regular.ttf',
+        bold:        font[:share] + '/liberation/LiberationSerif-Bold.ttf',
+        italic:      font[:share] + '/liberation/LiberationSerif-Italic.ttf',
+        bold_italic: font[:share] + '/liberation/LiberationSerif-BoldItalic.ttf',
+    },
+    'LiberationSans' => {
+        normal:      font[:share] + '/liberation/LiberationSans-Regular.ttf',
+        bold:        font[:share] + '/liberation/LiberationSans-Bold.ttf',
+        italic:      font[:share] + '/liberation/LiberationSans-Italic.ttf',
+        bold_italic: font[:share] + '/liberation/LiberationSans-BoldItalic.ttf',
+    },
+    'LiberationMono' => {
+        normal:      font[:share] + '/liberation/LiberationMono-Regular.ttf',
+        bold:        font[:share] + '/liberation/LiberationMono-Bold.ttf',
+        italic:      font[:share] + '/liberation/LiberationMono-Italic.ttf',
+        bold_italic: font[:share] + '/liberation/LiberationMono-BoldItalic.ttf',
+    },
+    'NotoSansMono' => {
+        normal:      font[:share] + '/noto/NotoSansMono-Regular.ttf',
+        bold:        font[:share] + '/noto/NotoSansMono-Bold.ttf',
+        italic:      font[:share] + '/noto/NotoSansMono-Regular.ttf',
+        bold_italic: font[:share] + '/noto/NotoSansMono-Bold.ttf',
+    },
+    'JetBrainsMono' => {
+        normal:      font[:share] + '/jetbrains-mono/JetBrainsMono-Regular.ttf',
+        bold:        font[:share] + '/jetbrains-mono/JetBrainsMono-Bold.ttf',
+        italic:      font[:share] + '/jetbrains-mono/JetBrainsMono-Italic.ttf',
+        bold_italic: font[:share] + '/jetbrains-mono/JetBrainsMono-BoldItalic.ttf',
+    },
+    'UbuntuMono' => {
+        normal:      font[:share] + '/UbuntuMono-R.ttf',
+        bold:        font[:share] + '/UbuntuMono-B.ttf',
+        italic:      font[:share] + '/UbuntuMono-RI.ttf',
+        bold_italic: font[:share] + '/UbuntuMono-BI.ttf',
+    },
+    'Ubuntu' => {
+        bold:        font[:share] + '/Ubuntu-B.ttf',
+        normal:      font[:share] + '/Ubuntu-R.ttf',
+        italic:      font[:share] + '/Ubuntu-RI.ttf',
+        bold_italic: font[:share] + '/Ubuntu-BI.ttf',
+    },
+    'CMUSerif' => {
+        normal:      font[:local] + '/cmu/cmunrm.ttf',
+        bold:        font[:local] + '/cmu/cmunbx.ttf',
+        italic:      font[:local] + '/cmu/cmunti.ttf',
+        bold_italic: font[:local] + '/cmu/cmunbi.ttf',
+    },
+    'SourceSans' => {
+      normal:        font[:local] + '/source/SourceSansPro-Regular.ttf',
+      bold:          font[:local] + '/source/SourceSansPro-Bold.ttf',
+      italic:        font[:local] + '/source/SourceSansPro-Italic.ttf',
+      bold_italic:   font[:local] + '/source/SourceSansPro-BoldItalic.ttf',
+    },
+    'CMUMono' => {
+        normal:      font[:local] + '/cmu/cmuntt.ttf',
+        bold:        font[:local] + '/cmu/cmuntb.ttf',
+        italic:      font[:local] + '/cmu/cmunit.ttf',
+        bold_italic: font[:local] + '/cmu/cmuntx.ttf',
+    },
+}
+
+# }}}
+
+# == options == {{{
+
+# === default fonts === {{{
+font_main = fonts["FreeSans"]
+font_title = fonts["FreeSerif"]
+font_code = fonts["UbuntuMono"]
+# }}}
+
+# === defaults === {{{
+
+options[:to_file] = output_file
+options[:attributes]["pdf-theme"] = theme_file if theme_file
+options[:attributes]["source-language"] = cli[:doc_language] if cli[:doc_language]
+options[:attributes]["toc"] = 'left' if cli[:doc_language]
+# }}}
+
+# }}}
+
+# == generate YAML theme content == {{{
+theme_content = <<~YAML
+  extends: default
+  page:
+    background-color: #{body_theme[:background]}
+    size: a4paper
+  font:
+    catalog:
+      Noto Serif:
+        normal:      #{font_main[:normal]}
+        bold:        #{font_main[:bold]}
+        italic:      #{font_main[:italic]}
+        bold_italic: #{font_main[:bold_italic]}
+      M+ 1mn:
+        normal:      #{font_code[:normal]}
+        bold:        #{font_code[:bold]}
+        italic:      #{font_code[:italic]}
+        bold_italic: #{font_code[:bold_italic]}
+      Title Sans:
+        normal:      #{font_title[:normal]}
+        bold:        #{font_title[:bold]}
+        italic:      #{font_title[:italic]}
+        bold_italic: #{font_title[:bold_italic]}
+  base:
+    font-color: #{body_theme[:text]}
+    color: #{body_theme[:background]}
+    font-size: #{options[:attributes]["font-size-main"]}
+  link:
+    font-color: #{body_theme[:link]}
+    text-decoration-color: #{body_theme[:link]}
+  caption:
+    font-color: #{body_theme[:title]}
+    font-size: #{options[:attributes]["font-size-caption"]}
+    font-style: bold
+  code:
+    font-size: #{options[:attributes]["font-size-code"]}
+    background-color: #{body_theme[:code_bg]}
+    border-color: #{body_theme[:code_border]}
+    font-color: #{body_theme[:text]}
+  codespan:
+    font-size: #{options[:attributes]["font-size-inlinecode"]}
+    font-color: #{body_theme[:text]}
+    border-color: #{body_theme[:border]}
+    background-color: #{body_theme[:code_bg]}
+YAML
+
+if theme_file.nil?
+  theme_file_path = Dir.pwd+'/asciidoctor-theme.yml'
+else
+  theme_file_path = theme_file
+end
+
+File.open(theme_file_path, 'w') do |file|
+  file.write(theme_content)
+end
+# }}}
+
+if File.exist?(input_file)
+  if File.file?(input_file)
+    puts "#{prompt}: converting #{input_file} to #{output_file}"
+  else
+    puts "#{prompt}: error: #{input_file} does not exists"
+    exit 2
+  end
+else
+  puts "#{prompt}: error: #{input_file} is not a valid candidate"
+  exit 1
+end
+
+options[:attributes]["pdf-theme"] ||= theme_file_path
+Asciidoctor.convert_file(
+  input_file,
+  safe: options[:safe],
+  backend: options[:backend],
+  doctype: options[:doctype],
+  to_file: options[:to_file],
+  attributes: options[:attributes]
+)
+File.delete(theme_file_path)
+puts "#{prompt}: done"
+

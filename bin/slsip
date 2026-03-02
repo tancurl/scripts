@@ -1,0 +1,28 @@
+#!/bin/sh
+#  ____     _ 
+# |  _ \   | |
+# | |_) |  | |
+# |  __/ |_| |
+# |_|   \___/ 
+#             
+
+if [ -z ${1} ]; then
+	dev=enp46s0
+else
+	dev=$1
+fi
+
+lip=$(ip a \
+	| grep ${dev} \
+	| grep 'inet ' \
+	| awk '{print $2;}' \
+	| awk -F '/' '{print $1;}')
+
+if [ -z "${lip}" ]; then
+	printf "♦"
+else
+	# lip="$(echo ${lip} | awk -F '.' '{print $3"."$4}')"
+	name="$(echo ${1} | cut -c1-1)"
+	printf "${lip}"
+	# printf "${name}:${lip}"
+fi

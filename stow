@@ -1,0 +1,24 @@
+#!/bin/sh
+
+name="bin"
+target="${HOME}/.local"
+
+if [ ! -d "${target}/${name}" ]; then
+	mkdir "${target}/${name}"
+fi
+
+case "${1}" in
+    -d|--delete|del|delete|d|rm)
+        for i in $(find ${name} -type f); do
+            echo "remove ${target}/${i}"
+            unlink "${target}/${i}"
+        done
+        ;;
+    *)
+        for bin in $name/*; do
+            printf 'stow: %s -> %s\n' ${bin} ${target}/${name}
+        done
+        stow "${name}" -t "${target}/${name}" $@
+        ;;
+esac
+
