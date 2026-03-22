@@ -1,0 +1,422 @@
+#!/usr/bin/env perl
+
+# preambles {{{
+use strict;
+use warnings;
+
+use Archive::Tar;
+use Cwd;
+use Digest::MD5 'md5_hex';
+use Digest::SHA 'sha1_hex';
+use Digest::SHA 'sha256_hex';
+use File::Basename;
+use File::Copy;
+use File::Path 'make_path';
+use File::Path 'remove_tree';
+use Getopt::Long; Getopt::Long::Configure("pass_through");
+use IO::Handle;
+use IPC::Open3;
+use List::Util 'max';
+use List::Util 'shuffle';
+use MIME::Base64;
+use POSIX 'strftime';
+use Symbol 'gensym';
+use Term::ANSIColor;
+use Text::ParseWords;
+use Time::HiRes 'sleep';
+
+$| = 1;  # buffer autoflush
+
+# thread handing
+use threads;
+use threads::shared;
+my $terminate : shared = 0;  # for SIGINT
+
+# }}}
+
+# signal handler {{{
+# required for breaking out of program using ctrl-c 
+$SIG{INT} = sub {
+    print "\r";
+    logger("caught SIGINT, terminating threads", 3, "main");
+    $terminate = 1;
+    kill 'INT', -$$;
+};
+# }}}
+# stream handler {{{
+my $std_stream = 2;
+my $STREAM;
+*STREAM = *STDERR if $std_stream == 2;
+*STREAM = *STDOUT if $std_stream == 1;
+# }}}
+# variables {{{
+my $help     = 0;
+my $silent   = 0;
+my $verbose  = 0;
+
+my $prompt = basename($0);
+# }}}
+# help function {{{
+sub print_help {
+    print <<"EOF";
+<A PLACE HOLDER FOR DESCRIPTION>
+
+usage: $prompt [COMMAND] [OPTIONS]
+
+• COMMAND
+
+
+• OPTIONS
+
+
+• EXAMPLE:
+    $prompt <COMMAND> <OPTION>
+
+• running without any command will show this message
+EOF
+}
+# }}}
+# argument parsing {{{
+GetOptions(
+    'silent'       => \$silent,
+    'verbose'      => \$verbose,
+    'help'         => \$help,
+) or logger("Error in command line arguments. Use -h for help.", 5, "main");
+# }}}
+# helper functions {{{
+
+# logger {{{
+sub logger {
+    my ($msg, $level, $label) = @_;
+    # my ($package, $filename, $line) = caller();
+    # my $subname = (caller(0))[3];
+    my $subname = (split(":", (caller(0))[3]))[-1];
+    $label //= $subname;
+    my $message;
+    my $status = 0;
+    my $suffix = colored("info   ", "white");
+    $suffix    = colored("debug  ", "blue")   if $level == 2;
+    $suffix    = colored("warning", "yellow") if $level == 3;
+    $suffix    = colored("fatal  ", "red")    if $level > 3;
+    $message = "] $prompt $label $suffix | $msg\n";
+    if ($level > 2) {
+        print(STDERR $message);
+    } else {
+        print(STDOUT $message);
+    }
+    if ($level <= 1) {
+        $status = 0;
+    } elsif ($level == 2) {
+        $status = 1;
+    } elsif ($level >= 3) {
+        $status = 2;
+    }
+    exit 2 if $level > 4;
+    return $status;
+}
+# }}}
+
+# pretty {{{
+sub pretty {
+    my ($_msg, $level) = @_;
+    # keep=1 so quotes are preserved in tokens
+    my @lex = quotewords('\s+', 1, $_msg);
+    my @msg;
+    my $count = 0;
+    for my $key (@lex) {
+        # check if token starts and ends with same type of quote
+        if ((substr($key, 0, 1) eq '"' && substr($key, -1, 1) eq '"')
+           || (substr($key, 0, 1) eq "'" && substr($key, -1, 1) eq "'")) {
+            push @msg, colored($key, 'yellow');
+            next;
+        }
+        if ($count == 0) {
+            push @msg, colored($key, 'green');
+        } elsif ($count <= 2) {
+            push @msg, colored($key, 'white');
+        } else {
+            push @msg, $key;
+        }
+        $count++;
+    }
+    my $message = "] @msg\n";
+    if ($level == 2) {
+        print STDERR $message;
+    } else {
+        print STDOUT $message;
+    }
+    exit 1 if $level > 2;
+}
+# }}}
+
+# find {{{
+# Example usage:
+# my @test = find({
+#     path => $ENV{HOME},   # any custom path
+#     type => "d",          # "d", "f", "l"
+#     full_path => 1,       # 0 = basename, 1 = fullname
+#     show_hidden => 1,     # 0 = hide, 1 = dotfile, 2 = 1 plus "." and ".."
+#     pattern => "[xX]on",  # string accepts regex
+# });
+# foreach my $t (@test) {
+#     print "$t\n";
+# }
+sub find {
+    my $subname = (split(":", (caller(0))[3]))[-1];
+    my ($opts) = @_; # hashref
+    $opts ||= {};
+    my $pattern      = $opts->{pattern}      // '';
+    my $type         = $opts->{type}         // '';
+    my $path         = $opts->{path}         // getcwd();
+    my $long         = $opts->{long}         // 1;
+    my $show_hidden  = $opts->{show_hidden}  // 0;
+    my $full_path    = $opts->{full_path}    // 0;
+    $path =~ s,/$,,;
+
+    unless (-d $path) {
+        logger("$prompt: Please specify which directory to search", 5, $subname);
+    }
+
+    my @items;
+    opendir (my $item, $path);
+    while (my $entry = readdir $item) {
+        # next unless -d $path . '/' . $entry;
+        my $full_entry = sprintf("%s/%s", $path, $entry);
+        unless ($show_hidden) {
+            next if $entry =~ /^\./;
+        }
+        if ($show_hidden < 2) {
+            next if $entry eq '.' or $entry eq '..';
+        }
+        if ($pattern) {
+            unless ($entry =~ /${pattern}/) {
+                next;
+            }
+        }
+        if ($type =~ /^[fF]/) {
+            next unless -f $full_entry;
+        }
+        if ($type =~ /^[lL]/) {
+            next unless -l $full_entry;
+        }
+        if ($type =~ /^[dD]/) {
+            next unless -d $full_entry;
+        }
+        if ($full_path) {
+            if ($path eq ".") {
+                $entry = getcwd();
+            }
+            if ($path =~ /^\//) {
+                $entry = $full_entry;
+            }
+            if ($path =~ /^\.\./) {
+                my $pwd = getcwd($path);
+                $full_entry =~ s,$pwd,,;
+                $full_entry = sprintf("%s/%s", $pwd, $entry);
+                $entry = $full_entry;
+            }
+        }
+        # if ($long && $type) {
+        #     $entry = sprintf "[%s] %s", $type, $entry;
+        # }
+        push(@items, $entry)
+    }
+    return sort @items;
+    closedir $item;
+}
+# }}}
+
+# command {{{
+# Example usage:
+# my $convert_exists = command("convert");
+# if ($convert_exists) {
+#     print("convert exists at: $convert_exists\n");
+# } else {
+#     print STDERR "convert does not exists in \$PATH variable\n";
+#     exit 1;
+# }
+sub command {
+    my ($program) = @_;
+    my $path = $ENV{"PATH"};
+    my @directories = split(":", $path);
+    my $found = '';
+    foreach my $dir (@directories) {
+        my $full_path = "$dir/$program";
+        if (-x $full_path) {
+            $found = $full_path;
+            last;
+        }
+    }
+    return $found;
+}
+# }}}
+
+# get list of subroutines {{{
+sub sublist {
+    my $filename = $0;
+    open my $fh, '<', $filename or logger("Cannot open $filename: $!", 5);
+    my @lines = <$fh>;
+    close $fh;
+    my %subroutines;
+    my $pattern = "im";
+    foreach my $line (@lines) {
+        if ($line =~ /^\s*sub\s+(\w+)/) {
+            # # all
+            # $subroutines{$1} = 1;
+            # with pattern
+            if ($line =~ /^\s*sub\s+(${pattern}\w+)/) {
+                $subroutines{$1} = 1;
+            }
+        }
+    }
+    # Print the list of subroutines
+    my @subs_unsort = ();
+    for (keys %subroutines) {
+        my $_sub = $_;
+        $_sub =~ s/^${pattern}//;
+        push(@subs_unsort, $_sub);
+    }
+    my @subs = sort @subs_unsort;
+    return @subs;
+}
+# }}}
+
+# md5sum {{{
+sub md5sum {
+    my ($file) = @_;
+    logger("Missing file", 5) unless $file;
+    open my $fh, '<', $file or logger("Cannot open $file: $!", 5);
+    binmode($fh);
+    my $md5 = Digest::MD5->new->addfile($fh)->hexdigest;
+    close($fh);
+    return $md5;
+}
+# }}}
+
+# shasum {{{
+# Example usage
+# my $cap = shasum($file, 1);  # 1, 224, 256, 384, 512
+# printf "%s %s\n", $file, $cap;
+sub shasum {
+    my ($file, $length) = @_;
+    logger("Missing file", 5) unless $file;
+    open my $fh, '<', $file or logger("Cannot open $file: $!", 5);
+    binmode($fh);
+    my $sha = Digest::SHA->new($length)->addfile($fh)->hexdigest;
+    close($fh);
+    return $sha;
+}
+# }}}
+
+# base64 {{{
+# Example usage:
+# my $cap = base64("new dawn", "e");
+# logger($cap, 2, "encode");
+# $cap = base64($cap, "d");
+# logger($cap, 2, "decode");
+sub base64 {
+    my ($string, $job) = @_;
+    my $subname = (split(":", (caller(0))[3]))[-1];
+    if (!$string || $string eq "") {
+        logger("Missing string", 5, $subname);
+    } else {
+        chomp $string;
+    }
+    $job = "encode" unless defined $job;
+    my $output;
+    if ($job =~ /[dD]/) {
+        $output = decode_base64($string);
+        $job = "encode";
+    } else {
+        $output = encode_base64($string);
+        $job = "decode";
+    }
+    chomp $output;
+    return $output;
+}
+# }}}
+
+# env reader {{{
+sub env {
+    my ($key, $file) = @_;
+    my $subname = (split(":", (caller(0))[3]))[-1];
+    $file //= ".env";
+
+    unless ($key) {
+        logger("Missing key", 5, $subname);
+    }
+
+    open(my $fh, '<', $file) or logger("$file: could not open file: $!", 5, $subname);
+    my $anymatch = 0;
+    my $anyline = 0;
+    my $match = '';
+    while (my $line = <$fh>) {
+        chomp($line);
+        my ($k, $value) = split(/=/, $line, 2);
+        if ($k =~ /$key/) {
+            $value =~ s/^"//g;
+            $value =~ s/"$//g;
+            $value =~ s/^'//g;
+            $value =~ s/'$//g;
+            $match = $value;
+        } else {
+            $anymatch++;
+        }
+        $anyline++;
+    }
+    close($fh);
+    if ($anyline == $anymatch) {
+        logger("$key: key not found", 4, $subname);
+    }
+    return $match;
+}
+# }}}
+
+# }}}
+
+# # threads handler {{{
+# # Example usage:
+# sub func_one {
+#     my $subname = (split(":", (caller(0))[3]))[-1];
+#     for (my $i = 0; $i <= 10; $i++) {
+#         printf "[%s] %d ", $subname, $i;
+#         sleep 1;
+#     }
+# }
+# sub func_two {
+#     my $subname = (split(":", (caller(0))[3]))[-1];
+#     for (my $i = 0; $i <= 10; $i++) {
+#         printf "[%s] %d\n", $subname, $i;
+#         sleep 1;
+#     }
+# }
+# # ------------------------------------
+# my $thread_func_one = async { func_one() };
+# my $thread_func_two = async { func_two() };
+# $thread_func_one->join();
+# $thread_func_two->join();
+# # }}}
+
+my $path = "$ENV{PWD}/documents/books";
+my @files = find({ path => $path, type => "f", pattern => 'pdf$' });
+my (@checksums, @duplicates);
+foreach my $file (@files) {
+    my $fullpath = sprintf("%s/%s", $path, $file);
+    my $sum = sprintf("%s %s", shasum($fullpath, 1), $fullpath);
+    push @checksums, $sum;
+}
+@checksums = sort @checksums;
+
+my $handler = "";
+foreach my $list (@checksums) {
+    my ($sum, $name) = split(" ", $list);
+    if ($handler =~ /$sum/) {
+        push @duplicates, $list;
+    }
+    $handler = $sum;
+}
+
+foreach my $dup (@duplicates) {
+    print("$dup\n");
+}
+
