@@ -397,7 +397,13 @@ sub env {
 # $thread_func_two->join();
 # # }}}
 
-my $path = "$ENV{PWD}/documents/books";
+my $path = shift;
+if ($path) {
+    chomp $path;
+    $path =~ s,/$,,;
+} else {
+    logger("missing path", 5);
+}
 my @files = find({ path => $path, type => "f", pattern => 'pdf$' });
 my (@checksums, @duplicates);
 foreach my $file (@files) {
@@ -409,11 +415,13 @@ foreach my $file (@files) {
 
 my $handler = "";
 foreach my $list (@checksums) {
-    my ($sum, $name) = split(" ", $list);
-    if ($handler =~ /$sum/) {
-        push @duplicates, $list;
+    my ($sum, $name) = split(" ", $list, 2);
+    my ($neosum, $neoname) = ("", "");
+    ($neosum, $neoname) = split(" ", $handler, 2) if $handler;
+    if ($neosum =~ /$sum/) {
+        push @duplicates, sprintf("%s %s", $name, $neoname);
     }
-    $handler = $sum;
+    $handler = $list;
 }
 
 foreach my $dup (@duplicates) {
