@@ -63,6 +63,18 @@ if [ ! -d "${directory}" ]; then
 	mkdir -p "${directory}"
 fi
 
+rounder() {
+    name="${1}"
+    imagemagick round --input ${name} --output ${name}
+    imagemagick extend --input ${name} --output ${name} --rate 2 --background black --gradient 1
+    imagemagick round --input ${name} --output ${name}
+    imagemagick extend --input ${name} --output ${name} --rate 2 --background white # --gradient 1
+    imagemagick round --input ${name} --output ${name}
+    imagemagick extend --input ${name} --output ${name} --rate 2 --background black --gradient 1
+    imagemagick round --input ${name} --output ${name}
+    imagemagick shadow --input ${name} --output ${name}
+}
+
 case ${choice} in
 	quit)
 		exit 0
@@ -113,11 +125,13 @@ case ${choice} in
 		;;
 	active)
 		import -screen -window $(xdotool getactivewindow) ${name}
+        rounder ${name}
         # imagemagick-round -i ${name} -o ${name} -r 10
         # imagemagick-shadow -i ${name} -o ${name}
 		;;
 	select)
 		import ${name}
+        rounder ${name}
 		;;
 	*)
 		notify "Shot cancelled" '' 1
