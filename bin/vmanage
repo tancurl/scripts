@@ -243,13 +243,13 @@ sub print_env {
 
 # }}}
 
-# Launch QEMU {{{
+# launch QEMU {{{
 sub vmlauncher {
     my $qemu = `which qemu-system-x86_64`;
     my @_name = split("/", $qemu);
     my $name = $_name[-1];
-    chomp($qemu);
-    chomp($name);
+    chomp($qemu) if $qemu;
+    chomp($name) if $name;
 
     if ($qemu) {
         if ($save) {
@@ -286,6 +286,7 @@ sub vmlauncher {
             $qemu,
             "-boot", "order=d",
             "-m", $machine_ram,
+            "-cpu", "host",
             "-smp", $machine_cpu,
             "-enable-kvm",
             "-net", "nic,model=virtio",
