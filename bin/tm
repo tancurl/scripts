@@ -6,8 +6,10 @@ use IO::Handle;
 use POSIX qw(strftime);
 use Term::ANSIColor;
 use Cwd qw(abs_path getcwd);
+use File::Path qw(remove_tree make_path);
 
 my $colorful = 1;  # set 0 to disable colored logs
+my $yes = 0;  # set 0 to disable colored logs
 
 # helper: logger {{{
 sub logger {
@@ -16,7 +18,7 @@ sub logger {
     $filename = substr($filename, rindex($filename, '/') + 1);
     my $current_date = strftime("%Y-%m-%d %H:%M:%S", localtime);
     my $log_name = "info";
-    my $log_color = 'white';
+    my $log_color = 'green';
     if ($level eq 2) {
         $log_name = "debug";
         $log_color = 'blue';
@@ -30,19 +32,36 @@ sub logger {
     if ($level) {
         if ($colorful) {
             if ($level eq 4) {
-                die("$current_date $filename:$line " . color('bold ' . $log_color) . "$log_name" . color('reset') . " $message\n");
+                printf(STDERR "%s %s %s %s\n", 
+                    $current_date,
+                    $filename,
+                    colored($log_name, "bold $log_color"),
+                    $message
+                );
+                exit 1;
             } elsif ($level eq 3) {
-                warn("$current_date $filename:$line " . color('bold ' . $log_color) . "$log_name" . color('reset') . " $message\n");
+                printf(STDERR "%s %s %s %s\n", 
+                    $current_date,
+                    $filename,
+                    colored($log_name, "bold $log_color"),
+                    $message
+                );
             } else {
-                print "$current_date $filename:$line " . color('bold ' . $log_color) . "$log_name" . color('reset') . " $message\n";
+                $log_name = "\b";
+                printf("%s %s %s %s", 
+                    $current_date,
+                    $filename,
+                    colored($log_name, "bold $log_color"),
+                    $message
+                );
             }
         } else {
             if ($level eq 4) {
-                die("$current_date $filename:$line $message\n");
+                die("$current_date $filename $message\n");
             } elsif ($level eq 3) {
-                warn("$current_date $filename:$line $message\n");
+                warn("$current_date $filename $message\n");
             } else {
-                print "$current_date $filename:$line $message\n";
+                print "$current_date $filename $message";
             }
         }
     }
@@ -84,7 +103,7 @@ if (@ARGV) {
 # worker: sessionizer {{{
 sub sessionizer {
     my ($session_name, $detach) = @_;
-    my $subname = (caller(0))[3];
+    my $subname = (split(":", (caller(0))[3]))[-1];
     my $session_path;
     if (-d $session_name) {
         $session_path = abs_path($session_name);
@@ -115,33 +134,41 @@ sub sessionizer {
     my @cmd;
     if ($check == 0) {
         if (exists $ENV{"TMUX"}) {
-            logger(1, "Created new tmux session: $session_name at $session_path");
+            logger(1, "[create mode] new tmux session $session_name at $session_path");
+            print(" [detach]");
+            print("\n");
             system("tmux new-session -s '$session_name' -c $session_path -d");
-            if ($detach) {
-                logger(1, "Attached to tmux session: $session_name at $session_path");
+            unless ($detach) {
+                logger(1, "[attach mode] tmux session $session_name at $session_path");
+                print("\n");
                 system("tmux switchc -t '$session_name'");
             }
             return;
         } else {
             @cmd = ("tmux", "new-session", "-s", $session_name, "-c", $session_path);
-            unless ($detach) {
+            logger(1, "[create mode] new tmux session $session_name at $session_path");
+            if ($detach) {
+                print(" [detach]");
                 push(@cmd, "-d");
             }
-            logger(1, "Created new tmux session: $session_name at $session_path");
+            print("\n");
             system(@cmd);
             return;
         }
     } else {
-        unless ($detach) {
-            logger(1, "[detach mode] session already exist: $session_name at $session_path");
+        if ($detach) {
+            logger(1, "[detach mode] session already exist $session_name at $session_path");
+            print("\n");
         } else {
-            # logger(2, "[detach mode] session already exist: $session_name at $session_path");
+            # logger(2, "[detach mode] session already exist $session_name at $session_path");
             unless ($ENV{"TMUX"}) {
-                logger(1, "Attached to tmux session: $session_name at $session_path");
+                logger(1, "[attach mode] tmux session $session_name at $session_path");
+                print("\n");
                 system("tmux attach -t '$session_name'");
                 return;
             } else {
-                logger(1, "Switched to tmux session: $session_name at $session_path");
+                logger(1, "[switch mode] tmux session $session_name at $session_path");
+                print("\n");
                 system("tmux switchc -t '$session_name'");
                 return;
             }
@@ -150,17 +177,36 @@ sub sessionizer {
 }
 # }}}
 
-set_title($session_names[-1]);
+set_title($session_names[0]);
 
 my $session_count = 0;
 if (@ARGV) {
     $session_count = scalar(@session_names);
 }
 
-for (my $idx = $#session_names; $idx >= 0; $idx--) { 
+for (my $idx = 0; $idx <= $#session_names; $idx++) { 
     my $session = $session_names[$idx];
-    my $detach = 0;
-    $detach = 1 unless $idx;
+    my $detach = 1;
+    unless (-d $session) {
+        print "$session: create directory? [y/N] ";
+        my $choice = <STDIN>;
+        chomp $choice;
+        if ($choice =~ /[yY]/ || $yes) {
+            make_path $session;
+        } else {
+            my $action = "abort";
+            my $level = 4;
+            if ($session_count gt 1) {
+                $action = "skip" ;
+                $level = 3;
+            }
+            next if $action == "skip";
+        }
+    }
     sessionizer($session, $detach);
 } 
+
+my $attach = $session_names[0];
+my $detach = 0;
+sessionizer($attach, $detach);
 
