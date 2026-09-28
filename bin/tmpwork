@@ -1,0 +1,25 @@
+#!/usr/bin/env perl
+
+use warnings;
+use strict;
+
+use POSIX qw(strftime);
+use File::Path qw(remove_tree make_path);
+use Getopt::Long; Getopt::Long::Configure("pass_through");
+
+my $list  = 0;
+my $title = "";
+
+my $timestamp = strftime("%Y%m%d-%H%M%S", localtime);
+my $tmppath;
+
+if ($title) {
+    $tmppath = sprintf "%s/%s/%s-%s", $ENV{HOME}, "w/tmp", $timestamp, $title;
+} else {
+    $tmppath = sprintf "%s/%s/%s", $ENV{HOME}, "w/tmp", $timestamp;
+}
+
+unless ($list) {
+    make_path($tmppath) unless -d $tmppath;
+    system("tm", $tmppath);
+}
