@@ -1,24 +1,50 @@
 #!/usr/bin/env perl
 
+package main;
+
 use strict;
 use warnings;
 use IO::Handle;
+use Getopt::Long; Getopt::Long::Configure("pass_through");
+use File::Basename;
+
+# variables
+my $prompt = basename($0);
+
+# flags
+my $help = 0;
+my $colorful = 0;
+my $index = 1;
+my $label;
+my $dryrun = 0;
+my $full_path_name = 1;
+
+GetOptions(
+    "h|help"     => \$help,
+    "c|color"    => \$colorful,
+    "dry-run"    => \$dryrun,
+    "i|index=i"  => \$index,
+    "n|name=s"   => \$label,
+) or die "$prompt: invalid usage\n";
+
+# help {{{
+package help;
+
 use POSIX qw(strftime);
 use Term::ANSIColor;
-use Cwd qw(abs_path getcwd);
-use File::Path qw(remove_tree make_path);
 
-my $colorful = 1;  # set 0 to disable colored logs
-my $yes = 0;  # set 0 to disable colored logs
-
-# helper: logger {{{
-sub logger {
-    my ($level, $message) = @_;
+# log {{{
+sub log {
+    my ($message, $level, $label) = @_;
     my ($package, $filename, $line) = caller();
+    my $subname = (caller(0))[3];
     $filename = substr($filename, rindex($filename, '/') + 1);
+    $label = $subname unless $label;
+
     my $current_date = strftime("%Y-%m-%d %H:%M:%S", localtime);
     my $log_name = "info";
-    my $log_color = 'green';
+    my $log_color = 'white';
+
     if ($level eq 2) {
         $log_name = "debug";
         $log_color = 'blue';
@@ -29,184 +55,196 @@ sub logger {
         $log_name = "error";
         $log_color = 'red';
     }
+
+    my $msg;
+
+    unless ($colorful) {
+        $msg = sprintf("%s %s\n",
+            # $current_date,
+            # $prompt,
+            # colored("$log_name", sprintf("%s %s", 'bold', $log_color)),
+            $label,
+            $message
+        );
+    } else {
+        $msg = sprintf("%s %s\n",
+            # $current_date,
+            # $prompt,
+            $label,
+            $message
+        );
+    }
+
     if ($level) {
-        if ($colorful) {
-            if ($level eq 4) {
-                printf(STDERR "%s %s %s %s\n", 
-                    $current_date,
-                    $filename,
-                    colored($log_name, "bold $log_color"),
-                    $message
-                );
-                exit 1;
-            } elsif ($level eq 3) {
-                printf(STDERR "%s %s %s %s\n", 
-                    $current_date,
-                    $filename,
-                    colored($log_name, "bold $log_color"),
-                    $message
-                );
-            } else {
-                $log_name = "\b";
-                printf("%s %s %s %s", 
-                    $current_date,
-                    $filename,
-                    colored($log_name, "bold $log_color"),
-                    $message
-                );
-            }
+        if ($level eq 4) {
+            die($msg);
+        } elsif ($level eq 3) {
+            warn($msg);
         } else {
-            if ($level eq 4) {
-                die("$current_date $filename $message\n");
-            } elsif ($level eq 3) {
-                warn("$current_date $filename $message\n");
-            } else {
-                print "$current_date $filename $message";
-            }
+            print($msg);
         }
     }
-    exit 1 if $level eq 4;
 }
 # }}}
 
-# helper: set title {{{
-sub set_title {
+# }}}
+
+# tmux {{{
+package tmux;
+
+use Cwd qw(abs_path getcwd);
+
+sub title {
     my ($arg) = @_;
+    my $subname = (caller(0))[3];
     my $prefix = getpwuid($<) . '@' . `cat /etc/hostname`;
     chomp $prefix;
     my $path = defined $arg ? $arg : `pwd`;
     chomp $path;
     $path =~ s/\Q$ENV{HOME}\E/~/ if !defined $arg;
+    if ($path eq ",") {
+        $path = ".";
+    }
     if ($path eq ".") {
         my @lex = split("/", getcwd());
         $path = "$lex[-2]/$lex[-1]";
-        print("$path\n");
     }
     if ($path eq "/") {
         $path = "root";
     }
-    my $title = "[$prefix] tmux in $path";
-    print "\033]0;$title\007";
-    STDOUT->flush();  # immediate output
-}
-# }}}
-
-# session name {{{
-my @session_names;
-if (@ARGV) {
-    @session_names = @ARGV;
-} else {
-    logger(4, "no path specified");
-}
-# }}}
-
-# worker: sessionizer {{{
-sub sessionizer {
-    my ($session_name, $detach) = @_;
-    my $subname = (split(":", (caller(0))[3]))[-1];
-    my $session_path;
-    if (-d $session_name) {
-        $session_path = abs_path($session_name);
+    my $title = "[$prefix] tmux :: $path";
+    $title = "tmux :: $path";
+    $title =~ tr /\./_/;
+    if ($dryrun) {
+        help::log "$title", 2, $subname;
     } else {
-        logger(4, "$subname: $session_name: not a directory");
+        print "\033]0;$title\007";
     }
+    STDOUT->flush();  # immediate output
+    return $path;
+}
 
-    my @parts = split('/', $session_path);
+sub convention {
+    my ($name, $path) = @_;
+    my $subname = (caller(0))[3];
+    my @cmd;
+    if ($name) {
+        $path = abs_path($path);
+    } else {
+        help::log("No name provided", 4, $subname);
+    }
+    my @parts = split('/', $path);
     my $basename = pop @parts // '';
     my $dirname = pop @parts // '';
     $dirname = "root" if $dirname eq "/";
-    $session_name = "$dirname/$basename";
-    $session_name =~ tr/./_/;
+    $name = "$dirname/$basename";
+    $name = $path if $full_path_name;
+    $name = $label if $label;
+    $name =~ tr/./_/;
+    # ($path, $path) -> fullpath named session
+    # ($name, $path) -> basename named session
+    return ($name, $path);
+}
 
-    # print("name: $session_name, path: $session_path, detach: $detach\n");
-    # return;
+sub create {
+    my ($name, $path) = tmux::convention @_;
+    my $subname = (caller(0))[3];
+    my @cmd;
+    unless (-d $path) {
+        help::log("$path: not a directory", 4, $subname);
+        # FEAT: make_path() can be added to create the directory
+    }
 
-    # check if session exists
-    my $check = 0;
-    my @tmux_sessions = `tmux ls 2>/dev/null`;
+    my $exists = 0;
+    my @tmux_sessions = `tmux list-sessions 2>/dev/null`;
     chomp @tmux_sessions;
     foreach my $session (@tmux_sessions) {
-        if ($session =~ /^$session_name:/) {
-            $check = 1;
+        my $session_name = (split(":", $session))[0];
+        if ($session_name eq $name) {
+            $exists = 1;
             last;
         }
     }
-    my @cmd;
-    if ($check == 0) {
-        if (exists $ENV{"TMUX"}) {
-            logger(1, "[create mode] new tmux session $session_name at $session_path");
-            print(" [detach]");
-            print("\n");
-            system("tmux new-session -s '$session_name' -c $session_path -d");
-            unless ($detach) {
-                logger(1, "[attach mode] tmux session $session_name at $session_path");
-                print("\n");
-                system("tmux switchc -t '$session_name'");
-            }
-            return;
-        } else {
-            @cmd = ("tmux", "new-session", "-s", $session_name, "-c", $session_path);
-            logger(1, "[create mode] new tmux session $session_name at $session_path");
-            if ($detach) {
-                print(" [detach]");
-                push(@cmd, "-d");
-            }
-            print("\n");
-            system(@cmd);
-            return;
-        }
+
+    unless ($exists) {
+        help::log("Created new tmux session: [$name :: $path]", 1, $subname);
+        @cmd = (
+            "tmux",
+            "new-session",
+            "-s", $name,
+            "-c", $path,
+            "-d",
+        );
     } else {
-        if ($detach) {
-            logger(1, "[detach mode] session already exist $session_name at $session_path");
-            print("\n");
+        help::log("Session already exists: $name", 1, $subname);
+    }
+    if (@cmd) {
+        if ($dryrun) {
+            help::log "@cmd", 2, $subname;
         } else {
-            # logger(2, "[detach mode] session already exist $session_name at $session_path");
-            unless ($ENV{"TMUX"}) {
-                logger(1, "[attach mode] tmux session $session_name at $session_path");
-                print("\n");
-                system("tmux attach -t '$session_name'");
-                return;
-            } else {
-                logger(1, "[switch mode] tmux session $session_name at $session_path");
-                print("\n");
-                system("tmux switchc -t '$session_name'");
-                return;
-            }
+            system(@cmd);
         }
     }
+}
+
+sub attach {
+    my ($name, $path) = convention @_;
+    my $subname = (caller(0))[3];
+
+    my @cmd;
+    if (exists $ENV{"TMUX"}) {
+        help::log("Switched to tmux session: $name", 1, $subname);
+        if ($dryrun) {
+            help::log("   path: $path", 2, $subname);
+        }
+        @cmd = (
+            "tmux",
+            "switch-client",
+            "-t", $name,
+        );
+    } else {
+        help::log("Attached to tmux session: $name", 1, $subname);
+        if ($dryrun) {
+            help::log("   path: $path", 2, $subname);
+        }
+        @cmd = (
+            "tmux",
+            "attach-session",
+            "-t", $name,
+        );
+    }
+    if ($dryrun) {
+        help::log "@cmd", 2, $subname;
+    } else {
+        tmux::title($name);
+        system(@cmd);
+    }
+}
+
+sub run {
+    # my @sessions = @_;
+    my @sessions;
+    my $count = scalar @sessions;
+
+    if (@ARGV) {
+        @sessions = @ARGV;
+    } else {
+        help::log("no path specified", 4);
+    }
+
+    foreach (@sessions) {
+        my $name = $_;
+        my $path = abs_path($_);
+        tmux::create($name, $path);
+    }
+    my $init = shift @sessions;
+    $init = "." if $init eq ",";
+    my $initpath = abs_path($init);
+    tmux::attach($init, $initpath);
 }
 # }}}
 
-set_title($session_names[0]);
+package main;
 
-my $session_count = 0;
-if (@ARGV) {
-    $session_count = scalar(@session_names);
-}
-
-for (my $idx = 0; $idx <= $#session_names; $idx++) { 
-    my $session = $session_names[$idx];
-    my $detach = 1;
-    unless (-d $session) {
-        print "$session: create directory? [y/N] ";
-        my $choice = <STDIN>;
-        chomp $choice;
-        if ($choice =~ /[yY]/ || $yes) {
-            make_path $session;
-        } else {
-            my $action = "abort";
-            my $level = 4;
-            if ($session_count gt 1) {
-                $action = "skip" ;
-                $level = 3;
-            }
-            next if $action == "skip";
-        }
-    }
-    sessionizer($session, $detach);
-} 
-
-my $attach = $session_names[0];
-my $detach = 0;
-sessionizer($attach, $detach);
+tmux::run()
 

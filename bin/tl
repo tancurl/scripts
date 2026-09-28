@@ -6,9 +6,175 @@ use IO::Handle;
 use POSIX qw(strftime);
 use Term::ANSIColor;
 
+# use File::Basename;
+# my $prompt = basename($0);
+
+my %cmd = (
+    preview => 'tmux list-windows -t {}; echo ""; ls {} 2>/dev/null',
+);
+
+my %label = (
+    border  => sprintf("'[ %s ]'", "tmux helper scripts"),
+    ghost   => sprintf("'%s'",     "pattern"),
+    input   => sprintf("'[ %s ]'", "active sessions"),
+    header  => sprintf("'[ %s ]'", "session name"),
+    footer  => sprintf("'[ %s ]'", "keybinds"),
+    preview => sprintf("'[ %s ]'", "preview"),
+);
+
+my @fzf_options = (
+
+    # global
+    [
+        # "--gutter", "' '",
+        # "--margin", '2%',
+        "--padding", '2%',
+        "--height", '80%',
+        "--info", "inline-right",
+        "--layout", "reverse",
+        "--marker", "'+'",
+        "--pointer", "'>'",
+        "--prompt", "'/'",
+        "--separator", "'-'",
+        "--ghost", $label{ghost},
+        "--gutter", "' '",
+        # "--no-color",
+        "--no-mouse",
+        "--no-multi",
+        "--no-sort",
+        "--style", "minimal",
+        "--sync",
+        "--wrap", "word",
+        # "--list-border", "bottom",
+    ],
+
+    # border
+    [
+        "--border", "line",
+        "--border-label", $label{border},
+        "--border-label-pos", 3,
+    ],
+
+    # input
+    [
+        "--input-border", "bottom",
+        "--input-label", $label{input},
+        "--input-label-pos", 3,
+    ],
+
+    # header
+    [
+        "--header", $label{header},
+        "--header-border", "right",
+        # "--header-first",
+        "--header-label-pos", 1,
+        "--header-lines", 0,
+    ],
+
+    # # list
+    # [
+    # ],
+
+    # bind
+    [
+        "--bind", sprintf("'ctrl-up:%s'", "up"),
+        "--bind", sprintf("'ctrl-down:%s'", "down"),
+        "--bind", sprintf("'ctrl-l:%s'", "toggle-preview"),
+        "--bind", sprintf("'ctrl-r:%s(%s)%s'",
+            "preview", $cmd{preview}, "+transform-preview-label:echo [ session ]"
+        ),
+    ],
+
+    # preview
+    [
+        "--preview-border", "dashed",
+        "--preview-label", $label{preview},
+        "--preview-label-pos", 3,
+        "--preview-window", "'right,60%,wrap-word'",
+        # "--preview",            "'$cmd{preview}'",
+        # '--preview-window',     "'border-top'",
+    ],
+
+    # footer
+    [
+        "--footer", sprintf("'%s%s%s'",
+            sprintf("%s %s %s", "<C-r>", " " x 2, "window list"),
+            "\n",
+            # " " x 5,
+            sprintf("%s %s %s", "<C-l>", " " x 2, "close preview"),
+        ),
+        "--footer-label", $label{footer},
+        "--footer-label-pos", 3,
+        "--footer-border", "line",
+        # "--footer", "'Window List'",
+    ],
+
+    # # '--bind', '/:',
+    # # '--border', 'sharp',
+    # # '--highlight-line',
+    # # '--multi',
+    # # '--no-input',
+    # # '--preview-border', 'none',
+    # # '--sync',
+    # '--ansi',
+    # '--header-first',
+    # '--height', '40%',
+    # '--ignore-case',
+    # '--info', 'inline',
+    # '--marker', '*',
+    # '--no-unicode',
+    # '--preview-window', 'border-top',
+    # '--prompt', ':',
+    # '--reverse',
+
+    # '--color', 'bg:#222222,preview-bg:#333333',
+    # '--color', 'current-fg:#000000,current-bg:#ffffff'
+    # '--disabled',
+    # '--gap', '1',  # adds extra char
+    # '--gap-line', '" "',
+
+);
+
+my @menu_options;
+# @menu_options = map { @$_ } values %fzf_options;
+@menu_options = map { @$_ } @fzf_options;
+# @menu_options = sort @menu_options;
+
+# helpers {{{
+sub command {
+    my ($program) = @_;
+    my $path = $ENV{"PATH"};
+    my @directories = split(":", $path);
+    my $found = '';
+    foreach my $dir (@directories) {
+        my $full_path = "$dir/$program";
+        if (-x $full_path) {
+            $found = $full_path;
+            last;
+        }
+    }
+    return $found;
+}
+# }}}
+
+$ENV{FZF_DEFAULT_OPTS} = "";
+$ENV{FZF_DEFAULT_OPTS} = join " ", (
+    $ENV{FZF_DEFAULT_OPTS},
+    @menu_options,
+);
+
+# open(my $fh, ">", "cap.txt");
+# printf $fh "%s\n", $ENV{FZF_DEFAULT_OPTS};
+# close($fh);
+
+# printf STDERR "%s\n\n\n", $ENV{FZF_DEFAULT_OPTS};
+
 my $colorful = 1; # set 0 to disable colored logs
 
-sub log_print {
+my $all = shift;
+chomp $all if $all;
+
+sub logger {
     my ($level, $message) = @_;
     my ($package, $filename, $line) = caller();
     $filename = substr($filename, rindex($filename, '/') + 1);
@@ -28,34 +194,99 @@ sub log_print {
         $log_color = 'red';
     }
 
+    my $msg;
+
+    if ($colorful) {
+        $msg = sprintf("%s %s %s %s\n",
+            $current_date,
+            $filename,
+            colored("$log_name", sprintf("%s %s", 'bold', $log_color)),
+            $message
+        );
+    } else {
+        $msg = sprintf("%s %s %s\n",
+            $current_date,
+            $filename,
+            $message
+        );
+    }
+
     if ($level) {
-        if ($colorful) {
-            if ($level eq 4) {
-                die("$current_date $filename:$line " . color('bold ' . $log_color) . "$log_name" . color('reset') . " $message\n");
-            } elsif ($level eq 3) {
-                warn("$current_date $filename:$line " . color('bold ' . $log_color) . "$log_name" . color('reset') . " $message\n");
-            } else {
-                print "$current_date $filename:$line " . color('bold ' . $log_color) . "$log_name" . color('reset') . " $message\n";
-            }
+        if ($level eq 4) {
+            die($msg);
+        } elsif ($level eq 3) {
+            die($msg);
         } else {
-            if ($level eq 4) {
-                die("$current_date $filename:$line $message\n");
-            } elsif ($level eq 3) {
-                warn("$current_date $filename:$line $message\n");
-            } else {
-                print "$current_date $filename:$line $message\n";
-            }
+            die($msg);
         }
     }
 }
 
 sub set_title {
-    my $title = shift;
-    # print "\032]0;$title\007";
-    print "\033]0;tmux :: $title\007";
-    # print "\034]0;$title\007";
-    # print "\035]0;$title\007";
-    STDOUT->flush();  # immediate output
+    unless ($ENV{SHELL} =~ /bash/) {
+        my $title = shift;
+        # print "\032]0;$title\007";
+        print "\033]0;tmux :: $title\007";
+        # print "\034]0;$title\007";
+        # print "\035]0;$title\007";
+        STDOUT->flush();  # immediate output
+    }
+}
+
+sub tmux_sessionizer {
+    my $fzf = command("fzf") // "";
+    my @tmux_sessions = `tmux list-sessions 2>/dev/null`;
+    chomp @tmux_sessions;
+
+    if (!@tmux_sessions) {
+        logger(4, "tmux: No active session(s)");
+        exit 1;
+    }
+
+    my $session_list = join("\n", map { (split /:/)[0] } @tmux_sessions);
+    # $session_list =~ s,$ENV{HOME},~,g;
+    my $session_name = "";
+    if ($fzf) {
+        my $cmd = join(" ", (
+                "echo '$session_list'", "|",
+                $fzf,
+            )
+        );
+        # logger 2, $cmd;
+        # $cmd =~ s,^~,$ENV{HOME},g;
+        $session_name = `$cmd`;
+        chomp $session_name;
+    } else {
+        my @sessions = split /\n/, $session_list;
+
+        for my $i (0 .. $#sessions) {
+            printf "  %d) %s\n", $i + 1, $sessions[$i];
+        }
+
+        print "Select session [1-" . scalar(@sessions) . "]: ";
+        chomp(my $choice = <STDIN>);
+
+        if ($choice =~ /^\d+$/ && $choice >= 1 && $choice <= @sessions) {
+            $session_name = $sessions[$choice - 1];
+        } else {
+            die "Invalid selection\n";
+        }
+    }
+    
+    if (!$session_name) {
+        logger 3, "No session selected";
+        exit 2;
+    }
+
+    set_title($session_name);
+    if (!exists $ENV{"TMUX"}) {
+        system "tmux attach -t '$session_name' 2>/dev/null";
+        logger 0, "Attached to tmux session: $session_name";
+    } else {
+        system "tmux switchc -t '$session_name' 2>/dev/null";
+        logger 0, "Switched to tmux session: $session_name";
+    }
+
 }
 
 my $title = "list sessions";
@@ -64,26 +295,13 @@ set_title($title);
 my @tmux_sessions = `tmux list-sessions 2>/dev/null`;
 chomp @tmux_sessions;
 
-if (!@tmux_sessions) {
-    log_print(4, "tmux: No active session(s)");
-    exit 1;
-}
-
-my $session_list = join("\n", map { (split /:/)[0] } @tmux_sessions);
-my $session_name = `echo "$session_list" | fzf --preview 'echo "Window list"; echo "==========="; tmux list-windows -t {}'`;
-chomp $session_name;
-
-if (!$session_name) {
-    log_print(3, "No session selected");
-    exit 2;
-}
-
-set_title($session_name);
-if (!exists $ENV{"TMUX"}) {
-    system("tmux attach -t '$session_name' 2>/dev/null");
-    log_print(0, "Attached to tmux session: $session_name");
+if ($all) {
+    if ($all =~ /^a/) {
+        logger(1, "tmux: all session(s)");
+        foreach my $tz (@tmux_sessions) {
+            tmux_sessionizer(@tmux_sessions);
+        }
+    }
 } else {
-    system("tmux switchc -t '$session_name' 2>/dev/null");
-    log_print(0, "Switched to tmux session: $session_name");
+    tmux_sessionizer(@tmux_sessions);
 }
-
